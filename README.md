@@ -28,6 +28,8 @@ python patch.py --source "Z_30_0120.bin" --output "output/EG209020.BIN"
 
 设置菜单中的 `Shutter sound` 提供开关和声音文件选择。支持 SD 卡根目录 `SHUTTER.WAV`，以及 `SHUTTER/1.WAV` 至 `SHUTTER/4.WAV`。声音格式为 8000 Hz、单声道、16 位 PCM，最长 1.08 秒，详见[声音说明](docs/shutter-sound.md)。
 
+**注意: SD卡根目录的SHUTTER.wav声音资源是必须的，否则无法正常启用该功能，SHUTTER目录及其目录内文件可以空缺。**
+
 转换短 PCM WAV：
 
 ```powershell
