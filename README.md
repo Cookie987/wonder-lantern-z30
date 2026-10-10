@@ -49,4 +49,4 @@ python tools/prepare_wav.py input.wav SHUTTER.WAV
 
 除声音实现的四个文件外，本项目原创代码与文档采用 [MIT](LICENSE)。声音实现采用 [Wonder Lantern Community License](licenses/Wonder-Lantern.txt)，包含免费分发等条件；使用或分发组合代码时须同时遵守相应条款。
 
-本项目属于 WonderLantern 组织，由组织维护，是面向 Z30 的独立实验项目，不代表 Nikon 支持或认可。部分声音实现遵循随附的 Wonder Lantern Community License。许可证要求衍生版本不得自称为官方 Wonder Lantern 发布；该要求针对许可证覆盖的软件发布身份，不改变本仓库属于 WonderLantern 组织这一事实。许可证不授予 Nikon 固件、原厂资源或商标的权利。
+本项目属于 WonderLantern 组织，是面向 Z30 的独立实验项目，不代表 Nikon 支持或认可。部分声音实现遵循随附的 Wonder Lantern Community License。许可证要求衍生版本不得自称为官方 Wonder Lantern 发布；该要求针对许可证覆盖的软件发布身份，不改变本仓库属于 WonderLantern 组织这一事实。许可证不授予 Nikon 固件、原厂资源或商标的权利。
