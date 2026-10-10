@@ -1,27 +1,44 @@
 # SPDX-License-Identifier: LicenseRef-Wonder-Lantern-Community
-# Copyright (c) 2026 Z30 Firmware Extensions contributors
+# Copyright (c) 2026 Wonder Lantern Z30 contributors
 # See licenses/Wonder-Lantern.txt and THIRD_PARTY_NOTICES.md.
 """Native Z30 sound routines and menu support."""
 from .sound_layout import *
 from ..assembly import constant, invoke
 
-def ui_code(f, strings, fixed, file_names, errors, file_ids, switch_ids, anchor_table, template, child_templates):
+def ui_code(f, strings, fixed, file_names, errors, file_ids, switch_ids, anchor_table, template, child_templates, extension=None):
     code = {}
+    allocation_size = NEW_SIZE
+    module_copy = module_labels = getter_check = getter_result = route_extra = route_action = action_extra = ''
+    if extension:
+        from . import module_host as mh
+        allocation_size = extension['allocation_size']
+        module_copy = f"""{constant('r5',mh.PAGE_OFFSET)} add r5,r4,r5; mov r0,r5;
+            {constant('r1',extension['template'])} movs r2,#44; {invoke(0x10199bdc,thumb=False)}
+            add r0,r4,#{PAGE_OFFSET}; str r0,[r5,#4];
+            {constant('r5',mh.STATE_OFFSET)} add r5,r4,r5; mvn r0,#0; str r0,[r5,#{mh.FD}];"""
+        module_labels = invoke(f['module_labels'])
+        getter_check = f"{constant('r12',mh.PAGE_INDEX)} cmp r1,r12; beq module_page;"
+        getter_result = f"""module_page: push {{r1-r3,lr}}; {invoke(f['get'])} cmp r0,#0; beq ret;
+            {constant('r2',mh.PAGE_OFFSET)} b add_page;"""
+        route_extra = f"""beq owned; {constant('r2',mh.PAGE_OFFSET)} add r2,r0,r2; cmp r4,r2;"""
+        route_action = f"""ldrh r2,[r4,#2]; {constant('r12',mh.PAGE_INDEX)} cmp r2,r12; bne sound_action;
+            {invoke(f['module_action'])} b action_done; sound_action:"""
+        action_extra = f"cmp r5,#4; bne not_module; {invoke(f['module_open'])} b done; not_module:"
     c = constant
     def call(name): return invoke(f[name])
     native = lambda address: invoke(address, thumb=address != 0x10199bdc)
     code['ensure']=f"""
             push {{r4-r6,lr}}; {call('get')} cmp r0,#0; bne done;
-            {c('r0',NEW_SIZE+31)} movs r1,#0; {native(0x10211f4c)} cmp r0,#0; beq done;
+            {c('r0',allocation_size+31)} movs r1,#0; {native(0x10211f4c)} cmp r0,#0; beq done;
             mov r6,r0; adds r0,#31; bic r4,r0,#31;
-            mov r0,r4; {c('r1',NEW_SIZE)} {native(0x10199c40)}
+            mov r0,r4; {c('r1',allocation_size)} {native(0x10199c40)}
             mov r0,r4; {c('r1',anchor_table)} movs r2,#32; {native(0x10199bdc)}
             add r0,r4,#{PAGE_OFFSET}; {c('r1',template)} movs r2,#44; {native(0x10199bdc)}
             {c('r5',FILES_OFFSET)} add r5,r4,r5; mov r0,r5;
             {c('r1',child_templates[FILES_INDEX])} movs r2,#44; {native(0x10199bdc)} add r0,r4,#{PAGE_OFFSET};str r0,[r5,#4];
             {c('r5',SWITCH_OFFSET)} add r5,r4,r5; mov r0,r5;
             {c('r1',child_templates[SWITCH_INDEX])} movs r2,#44; {native(0x10199bdc)} add r0,r4,#{PAGE_OFFSET};str r0,[r5,#4];
-            {c('r0',MAGIC)} str r0,[r4,#56];str r6,[r4,#60];mvn r0,#0;str r0,[r4,#112];
+            {module_copy} {c('r0',MAGIC)} str r0,[r4,#56];str r6,[r4,#60];mvn r0,#0;str r0,[r4,#112];
             dmb ish;{c('r0',STATE_ANCHOR)} str r4,[r0,#16];mov r0,r4;
             done: pop {{r4-r6,pc}};
         """
@@ -55,7 +72,7 @@ def ui_code(f, strings, fixed, file_names, errors, file_ids, switch_ids, anchor_
             {c('r0',errors)} ldr r5,[r0,r1,lsl #2];mov r0,r5;movs r1,#40;movs r2,#0;{native(0x10454efe)}
             mov r0,r5;movs r1,#52;movs r2,#0;{native(0x10454efe)}
             mov r0,r5;movs r1,#53;movs r2,#0;{native(0x10454efe)}
-            done:movs r0,#0;pop {{r4-r8,pc}};
+            done:{module_labels} movs r0,#0;pop {{r4-r8,pc}};
         """
 
     code['render']=f"""
@@ -77,7 +94,7 @@ def ui_code(f, strings, fixed, file_names, errors, file_ids, switch_ids, anchor_
             ldrh r5,[r8,#22];ldrh r0,[r8,#24];add r5,r5,r0;ldrh r6,[r8,#2];
             {c('r0',FILES_INDEX)}cmp r6,r0;beq file_apply;
             {c('r0',SWITCH_INDEX)}cmp r6,r0;beq switch_apply;
-            cmp r5,#0;beq open_switch;cmp r5,#1;beq open_files;
+            {action_extra} cmp r5,#0;beq open_switch;cmp r5,#1;beq open_files;
             cmp r5,#2;beq preview;cmp r5,#3;bne redraw;
             ldr r0,[r4,#{LENGTH}];cmp r0,#0;beq reload;
             reload:ldr r0,[r4,#{SELECTED}];{call('load')}b redraw;
@@ -108,7 +125,7 @@ def ui_code(f, strings, fixed, file_names, errors, file_ids, switch_ids, anchor_
         """
 
     code['getter']=f"""
-            cmp r0,#2;bne original;{c('r12',PAGE_INDEX)}cmp r1,r12;blo original;
+            cmp r0,#2;bne original;{getter_check} {c('r12',PAGE_INDEX)}cmp r1,r12;blo original;
             {c('r12',SWITCH_INDEX)}cmp r1,r12;bhi original;
             push {{r1-r3,lr}};{call('get')}cmp r0,#0;beq ret;
             ldr r1,[sp];{c('r2',PAGE_INDEX)}cmp r1,r2;beq root;adds r2,#1;cmp r1,r2;beq files;
@@ -116,7 +133,7 @@ def ui_code(f, strings, fixed, file_names, errors, file_ids, switch_ids, anchor_
             files:{c('r2',FILES_OFFSET)}b add_page;
             root:movs r2,#{PAGE_OFFSET};add_page:add r0,r0,r2;
             ret:pop {{r1-r3,pc}};
-            original:cmp r0,#7;mov r2,r0;mov.w r0,#0;bhs outside;{c('r0',0xc2006594)}
+            {getter_result} original:cmp r0,#7;mov r2,r0;mov.w r0,#0;bhs outside;{c('r0',0xc2006594)}
             .balign 4;ldr.w pc,[pc,#0];.word 0x1045720b;outside:bx lr;
         """
 
@@ -124,12 +141,12 @@ def ui_code(f, strings, fixed, file_names, errors, file_ids, switch_ids, anchor_
             push {{r0-r4,lr}};mov r4,r0;{call('get')}cmp r0,#0;beq original;
             add r2,r0,#{PAGE_OFFSET};cmp r4,r2;beq owned;
             {c('r2',FILES_OFFSET)}add r2,r0,r2;cmp r4,r2;beq owned;
-            {c('r2',SWITCH_OFFSET)}add r2,r0,r2;cmp r4,r2;bne original;
+            {c('r2',SWITCH_OFFSET)}add r2,r0,r2;cmp r4,r2;{route_extra} bne original;
             owned:ldr r3,[sp,#4];{c('r2',0x256)}cmp r3,r2;beq activate;
             {c('r2',0x25b)}cmp r3,r2;beq activate;
             {c('r2',0x26f)}cmp r3,r2;beq activate;
             {c('r2',0x27e)}cmp r3,r2;bne original;
-            activate:mov r0,r4;mov r1,r3;{call('action')}
+            activate:mov r0,r4;mov r1,r3;{route_action} {call('action')} action_done:
             add sp,#4;pop {{r1-r4,lr}};{c('r0',0x3bb)}bx lr;
             original:pop {{r0-r4,lr}};push {{r4-r10,lr}};movs r5,r0;mov r6,r1;
             .balign 4;ldr.w pc,[pc,#0];.word 0x103ce80d;

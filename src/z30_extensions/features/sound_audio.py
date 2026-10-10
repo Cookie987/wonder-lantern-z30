@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: LicenseRef-Wonder-Lantern-Community
-# Copyright (c) 2026 Z30 Firmware Extensions contributors
+# Copyright (c) 2026 Wonder Lantern Z30 contributors
 # See licenses/Wonder-Lantern.txt and THIRD_PARTY_NOTICES.md.
 """Native Z30 sound routines and menu support."""
 from .sound_layout import *

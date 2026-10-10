@@ -155,10 +155,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source', type=Path, required=True)
     parser.add_argument('--extracted-eg', action='store_true')
+    parser.add_argument('--preset', choices=['full', 'modular'], default='full')
     args = parser.parse_args()
     supplied = args.source.read_bytes()
     stock = supplied if args.extracted_eg else extract_eg(supplied)
-    image, report = build(stock)
+    image, report = build(stock, args.preset)
     if binascii.crc_hqx(image, 0): raise ValueError('Candidate CRC mismatch')
     print(json.dumps({'candidate_sha256': report['sha256'], 'm900': verify_m900(stock, image),
                       'wav': verify_wav(stock, image, report), 'passed': True,

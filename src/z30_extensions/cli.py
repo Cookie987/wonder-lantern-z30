@@ -8,7 +8,7 @@ from .container import extract_eg, CONTAINER_SHA256
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('feature', nargs='?', default='full', choices=['full', 'liveview-dual', 'm900', 'shutter-sound'])
+    parser.add_argument('feature', nargs='?', default='full', choices=['full', 'liveview-dual', 'm900', 'shutter-sound', 'modular'])
     parser.add_argument('--source', type=Path, required=True, help='Original Z_30_0120.bin, SHA-256 checked before decoding')
     parser.add_argument('--extracted-eg', action='store_true', help='Developer mode: input is an extracted stock EG module')
     parser.add_argument('--output', type=Path, required=True, help='New output path; existing files are refused')
