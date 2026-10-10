@@ -10,6 +10,11 @@
 *.rom
 *.ROM
 *.patch.json
+*.zmod
+*.ZMOD
+*.elf
+*.o
+*.a
 
 # Local audio and private media; examples are generated from source.
 *.wav

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: LicenseRef-Wonder-Lantern-Community
-# Copyright (c) 2026 Z30 Firmware Extensions contributors
+# Copyright (c) 2026 Wonder Lantern Z30 contributors
 # See licenses/Wonder-Lantern.txt and THIRD_PARTY_NOTICES.md.
 """Build owned sound menus and native SD-WAV audio hooks from stock templates."""
 import struct
@@ -9,7 +9,7 @@ from .sound_audio import audio_code
 from .sound_ui import ui_code
 
 
-def add(plan):
+def add(plan, modules=False):
     im = plan.image
     if im.read(STATE_ANCHOR, 44) != bytes(44):
         raise ValueError('Sound state requires the unused stock page-zero slot')
@@ -34,6 +34,8 @@ def add(plan):
                  one='1.WAV', two='2.WAV', three='3.WAV', four='4.WAV', empty='', current='*',
                  missing='File not found', read='Read failed', invalid='Invalid WAV', close='Close failed',
                  busy='Sound busy', queue='Play failed', audio='Audio failed')
+    if modules:
+        texts['entry'] = texts['title'] = 'Extensions'
     strings = {key: plan.alloc(text.encode() + b'\0') for key, text in texts.items()}
     paths = [plan.alloc(path.encode() + b'\0') for path in ['A:\\SHUTTER.WAV'] + [f'A:\\SHUTTER\\{i}.WAV' for i in range(1, 5)]]
     path_table = plan.alloc(struct.pack('<5I', *paths))
@@ -47,18 +49,32 @@ def add(plan):
                                     tables[PAGE_INDEX], 0, 0, 0, 0, 0, metas[PAGE_INDEX]))
     child_templates = {i: plan.alloc(struct.pack('<11I', (i << 16) | 2, 0, 0, 0, tables[i],
                                                 0, 0, 0, 0, 0, metas[i])) for i in (FILES_INDEX, SWITCH_INDEX)}
+    extension = None
+    if modules:
+        from . import module_host as mh
+        module_table = plan.alloc(bytes(32))
+        module_meta = plan.alloc(bytes(28))
+        tables[mh.PAGE_INDEX] = module_table
+        metas[mh.PAGE_INDEX] = module_meta
+        child_templates[mh.PAGE_INDEX] = plan.alloc(struct.pack('<11I',
+            (mh.PAGE_INDEX << 16) | 2, 0, 0, 0, module_table, 0, 0, 0, 0, 0, module_meta))
+        extension = mh.prepare(plan, f)
+        extension['template'] = child_templates[mh.PAGE_INDEX]
     codes = audio_code(f, path_table, anchor_table)
     codes.update(ui_code(f, strings, fixed, file_names, errors, file_ids, switch_ids,
-                         anchor_table, template, child_templates))
+                         anchor_table, template, child_templates, extension))
     c = constant
     call = lambda name: invoke(f[name])
+    module_row = ''
+    if modules:
+        module_row = f"beq labels; {c('r4',(mh.PAGE_INDEX << 16)|2)} cmp r3,r4;"
     codes['row'] = f"""
         push {{r0-r4,lr}}; {c('r4', SETUP_OBJECT)} cmp r0,r4; bne owned;
         ldrh r3,[r1,#24]; {c('r4', ENTRY_ID)} cmp r3,r4; bne restore;
         {call('labels')} b restore;
         owned: ldr r3,[r0]; {c('r4', (PAGE_INDEX << 16) | 2)} cmp r3,r4; beq labels;
         {c('r4', (FILES_INDEX << 16) | 2)} cmp r3,r4; beq labels;
-        {c('r4', (SWITCH_INDEX << 16) | 2)} cmp r3,r4; bne restore;
+        {c('r4', (SWITCH_INDEX << 16) | 2)} cmp r3,r4; {module_row} bne restore;
         labels: {call('labels')}
         restore: pop {{r0-r4,lr}}; push.w {{r0-r11,lr}}; mov r7,r0; ldr r0,[r0,#40];
         .balign 4; ldr.w pc,[pc,#0]; .word 0x1045e345;
@@ -135,17 +151,26 @@ def add(plan):
     if set(ROOT_IDS + FILE_IDS + SWITCH_IDS + (ENTRY_ID,)) & used:
         raise ValueError('Custom control identifiers conflict with stock')
     pages = {}
-    for index, count, label, value, title, identifiers in (
+    page_specs = [
         (PAGE_INDEX, 4, 41, 54, 40, ROOT_IDS),
         (FILES_INDEX, 5, 47, 60, 53, FILE_IDS),
         (SWITCH_INDEX, 2, 45, 58, 52, SWITCH_IDS),
-    ):
+    ]
+    if modules:
+        available = [i for i in range(0x2400,0x3000) if i not in used and i not in ROOT_IDS + FILE_IDS + SWITCH_IDS + (ENTRY_ID,)]
+        if len(available) < 5:
+            raise ValueError('No free module control IDs')
+        module_ids = tuple(available[:4])
+        page_specs[0] = (PAGE_INDEX, 5, 41, 54, 40, ROOT_IDS + (available[4],))
+        page_specs.append((mh.PAGE_INDEX, 4, mh.LABEL_SLOT, mh.EMPTY_SLOT, mh.TITLE_SLOT, module_ids))
+        plan.features['module_host']['controls'] = list(module_ids)
+    for index, count, label, value, title, identifiers in page_specs:
         controls = bytearray()
         for i in range(count):
             control = bytearray(entry)
-            struct.pack_into('<I', control, 0, label + i)
+            struct.pack_into('<I', control, 0, mh.ROOT_SLOT if modules and index == PAGE_INDEX and i == 4 else label + i)
             struct.pack_into('<I', control, 16, 0x1209)
-            struct.pack_into('<I', control, 20, value + i if index != PAGE_INDEX or i < 2 else 56)
+            struct.pack_into('<I', control, 20, (mh.STATUS_SLOT if i == 2 else mh.EMPTY_SLOT) if modules and index == mh.PAGE_INDEX else (value + i if index != PAGE_INDEX or i < 2 else 56))
             struct.pack_into('<I', control, 24, identifiers[i])
             controls.extend(control)
         control_address = plan.alloc(controls)
@@ -159,14 +184,16 @@ def add(plan):
         for row in range(count):
             y = 62 + row * 52
             boxes.extend((72, y, 702, y + 48))
-            label_right = (350 if row < 2 else 696) if index == PAGE_INDEX else 550
+            label_right = (350 if row < 2 else 696) if index == PAGE_INDEX else (350 if row == 2 else 696) if modules and index == mh.PAGE_INDEX else 550
             labels.extend((78, y + 4, label_right, y + 44))
-            values.extend((366 if index == PAGE_INDEX else 570, y, 696, y + 48))
+            values.extend((366 if index == PAGE_INDEX or modules and index == mh.PAGE_INDEX else 570, y, 696, y + 48))
         rectangles = [plan.alloc(struct.pack('<' + 'h' * len(rect), *rect)) for rect in (boxes, labels, values)]
         geometry = plan.alloc(struct.pack('<4I', count, *rectangles))
         header = leaf_header.copy()
         header[1:5] = [geometry, layout_address, control_address, dispatch]
-        header[5] = (header[5] & 0xFFFF0000) | count
+        # Low half: total rows. High half: rows per screen. The source leaf
+        # only shows three; owned geometry fits all rows and must own capacity.
+        header[5] = (count << 16) | count
         plan.put(metas[index], struct.pack('<7I', *header))
         plan.put(tables[index], struct.pack('<8I', f['render'] | 1, zero | 1, 0x1045FDA1,
                                            (zero + 4) | 1, zero | 1, zero | 1, zero | 1, 0x1045FDA1))
@@ -183,9 +210,9 @@ def add(plan):
     plan.features['shutter_sound'] = {
         'functions': {k: hex(v | 1) for k, v in f.items()}, 'code_sizes': code_sizes,
         'pages': pages, 'state_anchor': hex(STATE_ANCHOR + 16), 'anchor_table': hex(anchor_table),
-        'page_template': hex(template), 'persistent_state_size': NEW_SIZE + 31,
-        'page_offsets': {str(PAGE_INDEX): PAGE_OFFSET, str(FILES_INDEX): FILES_OFFSET, str(SWITCH_INDEX): SWITCH_OFFSET},
-        'control_identifiers': {str(PAGE_INDEX): list(ROOT_IDS), str(FILES_INDEX): list(FILE_IDS), str(SWITCH_INDEX): list(SWITCH_IDS)},
+        'page_template': hex(template), 'persistent_state_size': (extension['allocation_size'] if extension else NEW_SIZE) + 31,
+        'page_offsets': {str(PAGE_INDEX): PAGE_OFFSET, str(FILES_INDEX): FILES_OFFSET, str(SWITCH_INDEX): SWITCH_OFFSET, **({str(mh.PAGE_INDEX): mh.PAGE_OFFSET} if modules else {})},
+        'control_identifiers': {str(index): list(identifiers) for index, _, _, _, _, identifiers in page_specs},
         'setup_entry_id': hex(ENTRY_ID), 'settings_count': 39,
         'default_enabled': False, 'settings_persistence': 'RAM only; reset at reboot',
         'sample_format': '8 kHz, mono, signed 16-bit, canonical 44-byte WAV, <=1.08 seconds',

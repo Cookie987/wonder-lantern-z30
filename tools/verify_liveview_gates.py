@@ -78,7 +78,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source', type=Path, required=True)
     parser.add_argument('--extracted-eg', action='store_true')
-    parser.add_argument('--preset', choices=['liveview-dual', 'full'], default='liveview-dual')
+    parser.add_argument('--preset', choices=['liveview-dual', 'full', 'modular'], default='liveview-dual')
     args = parser.parse_args()
     supplied = args.source.read_bytes()
     source = supplied if args.extracted_eg else extract_eg(supplied)

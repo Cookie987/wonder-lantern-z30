@@ -13,7 +13,7 @@
 
 ## Wonder-Lantern
 
-[Wonder-Lantern](https://github.com/vic2349/Wonder-Lantern) 是自定义电子快门声音功能的参考项目。本项目提供面向 Z30 的独立实现，不包含其 Z6 固件、SHCORE 二进制或示例音频，也不是官方 Wonder-Lantern 发布。
+[Wonder-Lantern](https://github.com/vic2349/Wonder-Lantern) 是自定义电子快门声音功能的参考项目。本仓库属于 WonderLantern 组织，提供面向 Z30 的独立实现，不包含该参考项目的 Z6 固件、SHCORE 二进制或示例音频。许可证中“不得自称为官方 Wonder Lantern 发布”的要求，指不得将受许可约束的衍生版本宣称为 Wonder Lantern 软件本身的官方发行版；这不影响本仓库属于 WonderLantern 组织。
 
 随附许可证保留其原始名称与版权声明；本项目声音实现的版权归本项目贡献者所有。
 
