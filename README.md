@@ -22,7 +22,7 @@ python patch.py --source "Z_30_0120.bin" --output "output/EG209020.BIN"
 
 程序先检查原始包的 SHA-256，再解包并核对 EG 模块。随后按 offset 检查并替换原字节、追加功能代码、重建 CRC，输出独立 EG 模块 `EG209020.BIN` 和 JSON 构建报告。该模块已在 Z30 C 1.20 实机安装测试；程序不会重建完整 Nikon 更新包。原始文件不会修改，已有输出不会覆盖。
 
-默认包含全部功能；可以通过 `liveview-dual`、`shutter-sound` 或 `m900` 单独构建。具体输入哈希和实现方式见[构建说明](docs/build.md)。
+默认包含同屏、快门声音和 M 档长曝光；可以通过 `liveview-dual`、`shutter-sound` 或 `m900` 单独构建。`mtp-fast`（加快 MTP 属性列表）是独立的实验预设，不在默认构建内，需明确指定。具体输入哈希和实现方式见[构建说明](docs/build.md)。
 
 ## 自定义声音
 
