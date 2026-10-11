@@ -61,11 +61,14 @@ def mtp(dev, op, params=(), read=True, chunk=1 << 20, keep=True):
         return r.GetUnsignedIntegerValue(RESPONSE), b'', time.perf_counter() - start
     context = r.GetStringValue(CONTEXT)
     total = r.GetUnsignedLargeIntegerValue(TOTAL)
+    # 0xFFFFFFFF (or its 64-bit form) means the device announced no size: read
+    # until a short chunk.
+    known = total not in (0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF)
     parts, got = [], 0
     buffer = (ctypes.c_ubyte * chunk)()
     try:
-        while got < total:
-            n = min(chunk, total - got)
+        while not known or got < total:
+            n = min(chunk, total - got) if known else chunk
             v = command(READ_DATA)
             v.SetStringValue(CONTEXT, context)
             v.SetUnsignedIntegerValue(TO_READ, n)
@@ -80,9 +83,9 @@ def mtp(dev, op, params=(), read=True, chunk=1 << 20, keep=True):
                     parts.append(ctypes.string_at(pointer, count))
             finally:
                 ctypes.windll.ole32.CoTaskMemFree(pointer)
-            if not count:
-                break
             got += count
+            if not count or (not known and count < n):
+                break
     except BaseException:
         try:
             end_transfer(dev, context)
@@ -90,7 +93,7 @@ def mtp(dev, op, params=(), read=True, chunk=1 << 20, keep=True):
             pass
         raise
     code = end_transfer(dev, context)
-    if got != total:
+    if known and got != total:
         raise OSError(f'short transfer: {got} of {total} bytes, response {code:04x}')
     return code, (b''.join(parts) if keep else got), time.perf_counter() - start
 
