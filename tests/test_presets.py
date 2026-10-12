@@ -5,20 +5,32 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from z30_extensions.build import resolve_presets
+from z30_extensions.build import PRESETS, resolve_presets
 from z30_extensions.cli import choose_presets, main
 
 
 class PresetTests(unittest.TestCase):
+    def test_module_host_selection_builds_its_required_framework(self):
+        self.assertEqual(PRESETS[5], 'module-host')
+        self.assertNotIn('modular', PRESETS)
+        self.assertEqual(resolve_presets('module-host'),
+                         (['module-host'], ['shutter-sound', 'module-host']))
+        self.assertEqual(resolve_presets(['module-host', 'shutter-sound', 'module-host'])[1],
+                         ['shutter-sound', 'module-host'])
+        self.assertEqual(resolve_presets(['module-host', 'video-rot'])[1],
+                         ['shutter-sound', 'module-host', 'video-rot'])
+        with patch('builtins.input', return_value='6'), patch('sys.stdout', new=io.StringIO()):
+            self.assertEqual(choose_presets(), ['module-host'])
+
     def test_aliases_and_duplicates_have_stable_order(self):
         selected, features = resolve_presets(['shutter-sound', 'full', 'm900', 'full'])
         self.assertEqual(selected, ['shutter-sound', 'full', 'm900'])
-        self.assertEqual(features, ['liveview-dual', 'm900', 'shutter-sound', 'mtp-fast', 'module-host'])
+        self.assertEqual(features, ['liveview-dual', 'm900', 'shutter-sound', 'mtp-fast', 'module-host', 'video-rot'])
         self.assertEqual(resolve_presets(['modular', 'full'])[1], features)
 
-    def test_full_includes_every_feature_and_modular_keeps_its_scope(self):
+    def test_full_enables_all_features_and_modular_keeps_its_scope(self):
         self.assertEqual(resolve_presets('full')[1],
-                         ['liveview-dual', 'm900', 'shutter-sound', 'mtp-fast', 'module-host'])
+                         ['liveview-dual', 'm900', 'shutter-sound', 'mtp-fast', 'module-host', 'video-rot'])
         self.assertEqual(resolve_presets('modular')[1],
                          ['liveview-dual', 'm900', 'shutter-sound', 'module-host'])
         self.assertEqual(resolve_presets(['full', 'mtp-fast', 'modular'])[1],
@@ -28,12 +40,23 @@ class PresetTests(unittest.TestCase):
         self.assertEqual(resolve_presets(['m900', 'liveview-dual'])[1],
                          ['liveview-dual', 'm900'])
         self.assertEqual(resolve_presets(['mtp-fast', 'full'])[1],
-                         ['liveview-dual', 'm900', 'shutter-sound', 'mtp-fast', 'module-host'])
+                         ['liveview-dual', 'm900', 'shutter-sound', 'mtp-fast', 'module-host', 'video-rot'])
 
     def test_invalid_and_empty_selection(self):
         for selection in ([], 'unknown', ['full', 'unknown']):
             with self.subTest(selection=selection), self.assertRaises(ValueError):
                 resolve_presets(selection)
+
+    def test_video_rot_is_in_full_and_composes_in_stable_order(self):
+        self.assertIn('video-rot', resolve_presets()[1])
+        self.assertNotIn('video-rot', resolve_presets('modular')[1])
+        self.assertEqual(resolve_presets('video-rot')[1], ['video-rot'])
+        self.assertEqual(resolve_presets(['video-rot', 'full', 'video-rot'])[1],
+                         resolve_presets('full')[1])
+        self.assertEqual(resolve_presets(['full', 'video-rot'])[1],
+                         resolve_presets(['video-rot', 'full'])[1])
+        with patch('builtins.input', return_value='7'), patch('sys.stdout', new=io.StringIO()):
+            self.assertEqual(choose_presets(), ['video-rot'])
 
     def test_interactive_numbers_names_and_retry(self):
         with patch('builtins.input', side_effect=['0', '2, m900 2']), patch('sys.stdout', new=io.StringIO()):
@@ -42,7 +65,7 @@ class PresetTests(unittest.TestCase):
             self.assertEqual(choose_presets(), ['full'])
 
     def test_cli_combination_and_noninteractive_default(self):
-        for selection in ([], ['liveview-dual', 'm900']):
+        for selection in ([], ['liveview-dual', 'm900'], ['module-host'], ['video-rot'], ['full', 'video-rot']):
             with self.subTest(selection=selection), tempfile.TemporaryDirectory() as folder:
                 source = Path(folder) / 'stock.bin'
                 output = Path(folder) / 'EG209020.BIN'

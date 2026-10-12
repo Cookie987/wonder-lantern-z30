@@ -11,6 +11,45 @@ python -m unittest discover -s tests -v
 
 覆盖输入身份、CRC、补丁边界与重叠、原字节校验、追加对齐、容量、Thumb 指令生成和合成输入的解码掩码恢复。
 
+`video-rot` 单元测试使用合成 EG（仅替换测试中的身份常量），执行真实 Plan、预设构建和 CRC 路径，核对四份大端矩阵、两处钩子、追加区、共享矩阵不变、expected 不匹配拒绝及报告。构建测试需要 Keystone，未安装时明确跳过。预设/CLI 测试核对显式接入、重复选择、菜单第 7 项和默认范围不变。
+
+## 自动视频方向离线检查
+
+准备哈希匹配的原版固件，在项目根目录执行：
+
+```powershell
+$env:PYTHONPATH = (Join-Path (Get-Location) 'src')
+python -m pip install '.[video,verify]'
+python tools/verify_video_rot.py --source path/to/Z_30_0120.bin
+# 安装 .[sound,verify] 后可检查组合与原厂 tkhd 指令：
+python tools/verify_video_rot.py --source path/to/Z_30_0120.bin --combinations --emulate
+```
+
+也支持 `--extracted-eg`。基础检查使用 Keystone 构建：共享 0° 矩阵不变，原厂矩阵等值替换逐字节还原 stock；`video-rot` 只有两处 10 字节钩子及矩阵/函数追加区，CRC 残差为零。`--combinations` 检查与同屏、M900、声音、MTP、full、modular 和 module-host 组合：撤销两个视频钩子和新增尾部后逐字节等于去掉视频功能的基线，其他功能的尾部不变，顺序和重复选择不影响输出。full 已包含视频方向，额外选择 video-rot 必须与 full 单独构建逐字节一致。
+
+`--emulate` 使用 `video_rot_fixture.py` 和 Unicorn 执行原厂视频配置、原厂姿态 getter、memcpy 和完整视频 `tkhd` 构造器，不替换这些函数。测试四种方向、未知值 4、异常值 255、不可用回退、空参数和配置校验失败、配置后改变姿态、重复构造以及多个录像对象隔离；除对象的视频矩阵外，构造出的头数据逐字节与原厂一致，并检查保存寄存器和栈。姿态 RAM、参数和封装对象是明确的合成输入，不证明传感器、文件写入或机身播放；报告保留 `camera_verified: false`。
+
+### 现有 Z30 QEMU 的构造器检查
+
+已构建的独立 `video-rot` EG 可用 `tools/verify_video_rot_qemu.py` 在 Linux/WSL 测试。WSL 的 Python 也需要 Keystone；例如两个项目位于同一目录时，在 WSL 的扩展项目根目录运行：
+
+```sh
+python3 -m pip install '.[video]'
+python3 tools/verify_video_rot_qemu.py \
+  --qemu-root ../z30-qemu \
+  --stock-eg ../z30-qemu/.local/firmware/eg2090_0120a0.bi \
+  --candidate build/video-rot-stage2/EG209020.BIN \
+  --output-dir build/video-rot-stage2-qemu
+```
+
+候选必须逐字节匹配由原厂 EG 构建的独立 `video-rot`，且 CRC 为零；不接受任意修改固件或 `full video-rot`。QEMU 保留原厂 BIOS 哈希检查，显式 debugger 写入并读回两个钩子及追加区/CRC；初始化 scatter RAM，提供合成姿态、视频参数、封装对象和调用上下文。为从复位状态调用原厂函数，额外提供正常、不可缓存的恒等映射页表及 CP15 初始化；这些是诊断输入，不是原厂启动证据。分别运行原厂与补丁，执行四种方向、未知值 4 和异常值 255 的配置及完整视频 `tkhd` 构造、录制期间改变姿态的快照保留、重复构造、不可用回退、空参数、原厂配置校验失败和对象隔离；逐字节对照头数据，仅允许视频矩阵变化。不提供配置、姿态或 memcpy 桩。
+
+输出 `verification.json` 及两份 QEMU 日志。此测试不是自然开机或完整录像测试；现有模型不支持完整视频录制。机器加载方式和合成上下文在报告中明确记录，默认模拟器流程不变。
+
+第一阶段的固定矩阵构建已收到实机反馈：横拍和竖拍视频均变为竖向播放。第二阶段随后已收到横拍、两侧竖拍方向正确及录制中方向保持锁定的实机反馈；原始视频尚未在本仓库逐字节检查实际文件矩阵。
+
+2026-10-12 第二阶段本地验证：30 项单元测试、六种预设组合、Unicorn 原厂函数对照，以及现有 `z30-qemu` 的单核 TCG 原厂/补丁对照均通过。QEMU 发现对象内矩阵槽位为非对齐地址，因此包装函数使用原厂支持非对齐地址的 `0x10199CF0` 复制函数，不能使用第一阶段只复制到对齐栈缓冲的 `0x10199BDC`。最终独立构建 SHA-256 为 `0364ada38af88fd7ef67abdd4582b1a9761ab98077433ceede24b20d754c4eb8`，追加 280 字节，CRC 残差为零。本地完整报告为 `build/video_rot_stage2_verification.json` 和 `build/video-rot-stage2-qemu/verification.json`。下一步实机步骤见[自动方向测试说明](video-rotation.md)。
+
 ## 原厂指令执行检查
 
 准备匹配的原版固件并安装可选依赖：
@@ -41,6 +80,7 @@ python tools/verify_mtp_fast.py --source "Z_30_0120.bin"
 
 - 独立 EG 模块可通过机身更新流程安装。
 - `modular` 构建的 SD 宿主可加载并运行 ZMOD 模块。
+- 第二阶段独立 `video-rot` 构建：横拍、两侧竖拍方向正确，录制中转动机身方向保持锁定。用户还确认连续录像切换方向、重启、所用 4K/慢动作模式以及声画、播放、照片基本回归正常。未单独记录倒置横拍结果或原始 MP4 字节检查；不将独立预设反馈扩大为所有组合的实机覆盖。
 - `mtp-fast` 构建（SHA-256 `281ecaae…0dde`）在 47 JPG + 47 NEF 的卡上与原厂对照：590 条 GetObjectPropList 响应逐字节一致；文件夹属性列表约 2920 ms → 680 ms，全卡约 3220 ms → 980 ms，单对象均值约 44 ms → 19 ms。耗时随卡内文件变化；GetObjectInfo 和 GetThumb 未改动。
 
 该确认覆盖上述安装及模块宿主流程；各常规功能（同屏显示、快门声音、M 档长曝光）的实机结果尚未在本页逐项记录。离线检查与真机验证是不同的证据来源。

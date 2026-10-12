@@ -1,6 +1,6 @@
 # 从原始固件包构建功能扩展
 
-当前用户流程只需准备原始 Z30 C 1.20 固件包和本项目 patch 程序。默认 full 包含同屏、自定义电子快门声音、M 档 900 秒曝光、MTP 加速和 SD 模块宿主，不包含状态页面。
+当前用户流程只需准备原始 Z30 C 1.20 固件包和本项目 patch 程序。默认 full 包含同屏、自定义电子快门声音、M 档 900 秒曝光、MTP 加速、实验性 SD 模块宿主和视频自动方向，不包含状态页面。
 
 ## 运行
 
@@ -12,13 +12,26 @@ New-Item -ItemType Directory -Force output | Out-Null
 python patch.py --source path/to/Z_30_0120.bin --output output/EG209020.BIN
 ```
 
-可自由组合 `full`、`liveview-dual`、`shutter-sound`、`m900` 和 `mtp-fast`。终端中省略预设会显示多选菜单，输入编号或名称（空格或逗号分隔）；直接回车选择 full。非交互脚本省略预设时仍默认 full，可用 `--interactive` 强制显示菜单。命令行的多个预设用空格分隔：
+可自由组合 `full`、`liveview-dual`、`shutter-sound`、`m900`、`mtp-fast`、`module-host` 和 `video-rot`。菜单第 6 项为 SD 模块宿主，自动包含其依赖 `shutter-sound`，不会额外启用同屏、M900 或 MTP 加速。旧别名 `modular` 保留命令行和手动输入兼容，不在菜单中显示。终端中省略预设会显示多选菜单，输入编号或名称（空格或逗号分隔）；直接回车选择 full。非交互脚本省略预设时仍默认 full，可用 `--interactive` 强制显示菜单。命令行的多个预设用空格分隔：
 
 ```powershell
 python patch.py liveview-dual m900 mtp-fast --source path/to/Z_30_0120.bin --output output/EG209020.BIN
 ```
 
-`full` 展开为全部功能：同屏、M900、快门声音、MTP 加速和 SD 模块宿主。保留 `modular` 原有范围：同屏、M900、快门声音和 SD 模块宿主；`modular mtp-fast` 与 full 启用同一功能集合。重复功能只应用一次，构建顺序固定，同一功能集合的输出不会随输入顺序改变。报告记录 `selected_presets` 和展开后的 `enabled_features`。
+`full` 展开为全部六项功能：同屏、M900、快门声音、MTP 加速、实验性 SD 模块宿主和视频方向。保留 `modular` 原有范围：同屏、M900、快门声音和实验性 SD 模块宿主，不包含视频方向；`modular mtp-fast video-rot` 与 full 启用同一功能集合。`module-host` 仍为实验性功能，菜单及 full 的说明均明确标注。重复功能只应用一次，构建顺序固定，同一功能集合的输出不会随输入顺序改变。报告记录 `selected_presets` 和展开后的 `enabled_features`。
+
+### 自动视频方向（第二阶段）
+
+`video-rot` 在新录像封装对象的原厂视频配置函数成功返回后读取原厂姿态，将方向锁定在该对象的视频 `tkhd` 矩阵缓冲内；结束录制时构造视频轨头只读这份快照。原厂姿态 ID 0/1/2/3 映射为 0°/90°/270°/180°，未知或不可用回退 0°。共享 0° 矩阵、`mvhd` 和音轨不改动，也不在停止时重新采样方向。需要 Keystone，可通过 `.[video]` 或原有 `.[sound]` 安装：
+
+```powershell
+python -m pip install '.[video]'
+python patch.py video-rot --source path/to/Z_30_0120.bin --output output/EG209020.BIN
+```
+
+默认 `full` 已包含视频方向；`full video-rot` 的重复选择不会改变固件输出。补丁包含两处带 expected 校验的 10 字节跳转和 280 字节矩阵/包装函数追加区，沿用身份、边界、不重叠和 CRC 检查。报告 `features.video_rot` 记录原厂姿态接口、钩子、矩阵表、对象内快照位置及 `camera_verified: false`，该字段表示离线构建流程没有执行实机验证。用户已反馈独立视频预设的横拍、两侧竖拍及录制期间方向锁定实机正常；不将其扩大为所有组合的实机验证。复用原厂已经维护的姿态状态，不直接调用 issue 所列的三轴转换函数，也不添加未经标定的传感器阈值。
+
+只改新视频的元数据，不改像素或已有文件，播放器需尊重方向矩阵。锁定点是封装对象成功配置时，不是实测的 REC 按钮硬件时间；跨文件分段会创建新对象时重新采样。两侧竖拍角度映射、分段时机、机身回放和完整录像链路均需实机确认。第一阶段固定 90° 的实机反馈只证明矩阵能影响播放方向，不能作为本阶段自动选择已通过的证据。
 
 单独同屏和 M900 只需要标准库。声音、模块宿主和 `mtp-fast` 通过 `.[sound]` 安装的 Keystone 汇编。输出和同名 JSON 必须不存在，程序拒绝覆盖。CLI 通过 Python 运行。
 
@@ -36,7 +49,7 @@ python patch.py liveview-dual m900 mtp-fast --source path/to/Z_30_0120.bin --out
 2. 从该版本已知零填充位置恢复等价周期 XOR 掩码，内部解码；不附第三方 XOR 表。
 3. 检查容器结构、整包 CRC、模块边界和各模块 CRC，提取 EG 并再次检查其 SHA-256。
 4. 每个补丁包含 offset、expected bytes 和 replacement bytes；检查原字节、等长、边界和不重叠后替换。
-5. 在原 EG 尾部 CRC 前追加钩子代码，修补跳转地址，重建 CRC。
+5. 对需要代码钩子的功能，在原 EG 尾部 CRC 前追加代码并修补跳转地址；纯数据补丁不追加。所有构建均重建 CRC 并验证残差为零。
 6. 输出 EG209020.BIN 和报告，列出修改 offset、原字节、替换字节、追加地址和输入/输出摘要。
 
 offset 使用**解包后的 EG 模块**坐标，不是编码外层包的同一位置。输出是独立 EG 模块，不重新封装 Z_30_0120.bin。维护者已确认该 EG 模块在 Z30 C 1.20 上可安装，并已实机测试 SD 宿主与 ZMOD 加载、运行；具体记录见[验证说明](verification.md)。
