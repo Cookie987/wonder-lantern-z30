@@ -1,6 +1,6 @@
 # 从原始固件包构建功能扩展
 
-当前用户流程只需准备原始 Z30 C 1.20 固件包和本项目 patch 程序。默认组合包含同屏、自定义电子快门声音和 M 档 900 秒曝光，不包含状态页面。
+当前用户流程只需准备原始 Z30 C 1.20 固件包和本项目 patch 程序。默认 full 包含同屏、自定义电子快门声音、M 档 900 秒曝光、MTP 加速和 SD 模块宿主，不包含状态页面。
 
 ## 运行
 
@@ -12,9 +12,15 @@ New-Item -ItemType Directory -Force output | Out-Null
 python patch.py --source path/to/Z_30_0120.bin --output output/EG209020.BIN
 ```
 
-可明确指定 `full`、`liveview-dual`、`shutter-sound`、`m900`；默认 full。单独同屏和 M900 只需要标准库。
+可自由组合 `full`、`liveview-dual`、`shutter-sound`、`m900` 和 `mtp-fast`。终端中省略预设会显示多选菜单，输入编号或名称（空格或逗号分隔）；直接回车选择 full。非交互脚本省略预设时仍默认 full，可用 `--interactive` 强制显示菜单。命令行的多个预设用空格分隔：
 
-`mtp-fast` 是独立预设，只含 MTP 属性列表加速，不包含在 full 或其他预设中，也不与它们组合；它同样通过 `.[sound]` 安装的 Keystone 汇编。输出和同名 JSON 必须不存在，程序拒绝覆盖。CLI 通过 Python 运行。
+```powershell
+python patch.py liveview-dual m900 mtp-fast --source path/to/Z_30_0120.bin --output output/EG209020.BIN
+```
+
+`full` 展开为全部功能：同屏、M900、快门声音、MTP 加速和 SD 模块宿主。保留 `modular` 原有范围：同屏、M900、快门声音和 SD 模块宿主；`modular mtp-fast` 与 full 启用同一功能集合。重复功能只应用一次，构建顺序固定，同一功能集合的输出不会随输入顺序改变。报告记录 `selected_presets` 和展开后的 `enabled_features`。
+
+单独同屏和 M900 只需要标准库。声音、模块宿主和 `mtp-fast` 通过 `.[sound]` 安装的 Keystone 汇编。输出和同名 JSON 必须不存在，程序拒绝覆盖。CLI 通过 Python 运行。
 
 原始包大小为 34,496,798 字节，SHA-256 为：
 
@@ -66,6 +72,6 @@ python tools/verify_extended_features.py --source path/to/Z_30_0120.bin
 
 输出为独立 EG 模块，不重建外层 Z_30_0120.bin。固件版本菜单保留原厂 1.20，构建身份通过 JSON 报告的 SHA-256 核对。该模块的机身安装以及 SD 宿主/ZMOD 加载运行已完成实机测试。
 
-默认组合包含同屏、自定义声音和 M900。900 秒补丁改变扩展标志读取，不写入其保存值；原厂模式判断和曝光路径保留。视频快门窗口在构建后核对为原厂字节。
+默认组合包含同屏、自定义声音、M900、MTP 加速和 SD 模块宿主。900 秒补丁改变扩展标志读取，不写入其保存值；原厂模式判断和曝光路径保留。视频快门窗口在构建后核对为原厂字节。
 
-默认 `full` 构建不添加状态页、计数、CFW 版本标记、视频慢快门或 SD 模块宿主；`modular` 预设会加入 SD 模块宿主。离线检查不能保证真实显示、声音或曝光行为。
+默认 `full` 构建包含 SD 模块宿主，不添加状态页、计数、CFW 版本标记或视频慢快门。离线检查不能保证真实显示、声音或曝光行为。

@@ -1,6 +1,6 @@
 # Wonder Lantern Z30 离线构建指引
 
-目前只支持 **Z30 原版 C 1.20 固件**。默认生成包含直方图＋水平仪同屏、自定义快门声音和 M 档 900 秒曝光修改的独立 EG 模块产物。
+目前只支持 **Z30 原版 C 1.20 固件**。默认 full 生成包含直方图＋水平仪同屏、自定义快门声音、M 档 900 秒曝光、MTP 加速和 SD 模块宿主的完整功能独立 EG 模块产物。
 
 构建生成独立 EG 模块，不会重建完整 Nikon 更新包。维护者已确认该模块可在 Z30 C 1.20 机身安装，并已实机测试 SD 宿主与 ZMOD 加载、运行；详细验证范围见[验证说明](docs/verification.md)。
 
@@ -20,7 +20,26 @@ New-Item -ItemType Directory -Force output | Out-Null
 python patch.py --source "Z_30_0120.bin" --output "output/EG209020.BIN"
 ```
 
-第一条命令安装依赖，只需首次执行。程序会检查原版固件哈希并生成 EG 模块，原始文件不会被修改。
+第一条命令安装依赖，只需首次执行。运行 patch 后会显示预设菜单，可自由组合：
+
+| 编号 | 预设 | 内容 |
+| --- | --- | --- |
+| 1 | `full` | 完整功能：同屏＋快门声音＋M900＋MTP 加速＋SD 模块宿主 |
+| 2 | `liveview-dual` | 直方图与水平仪同屏 |
+| 3 | `shutter-sound` | 自定义电子快门声音 |
+| 4 | `m900` | M 档 900 秒曝光 |
+| 5 | `mtp-fast` | MTP 属性列表加速 |
+| 6 | `modular` | 同屏＋快门声音＋M900＋SD 模块宿主（保留原有范围） |
+
+例如输入 `2 4 5` 或 `liveview-dual,m900,mtp-fast`；输入 `1` 或直接回车选完整功能 full，重复功能自动去重。
+
+也可跳过菜单，在命令里写出所需组合：
+
+```powershell
+python patch.py full --source "Z_30_0120.bin" --output "output/EG209020.BIN"
+```
+
+脚本调用或重定向输入时，省略预设默认 full；加 `--interactive` 可强制显示菜单。程序会检查原版固件哈希并生成 EG 模块，原始文件不会被修改。
 
 ## 3. 找到生成的固件
 
