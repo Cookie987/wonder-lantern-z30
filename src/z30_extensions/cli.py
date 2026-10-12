@@ -7,13 +7,14 @@ from .build import build, PRESETS, resolve_presets
 from .container import extract_eg, CONTAINER_SHA256
 
 PRESET_LABELS = {
-    'full': '全部六项功能，包含视频方向及实验性 SD 模块宿主',
+    'full': '全部七项功能，包含视频方向及实验性 SD 模块宿主',
     'liveview-dual': '直方图与水平仪同屏',
     'shutter-sound': '自定义电子快门声音',
     'm900': 'M 档 900 秒曝光',
     'mtp-fast': 'MTP 属性列表加速',
     'module-host': '实验性 SD 模块宿主；自动包含快门声音框架',
     'video-rot': '视频自动方向；锁定开始录制时的方向',
+    'bitrate-slowmo-uncap': '提高 1080p 视频码率；放宽慢动作时长和文件限制',
 }
 
 
@@ -40,7 +41,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('feature', nargs='*', metavar='PRESET',
                         help='Combine presets with spaces: ' + ', '.join(PRESETS) +
-                             '; full enables all six features; experimental module-host includes shutter-sound; '
+                             '; full enables all seven features; experimental module-host includes shutter-sound; '
                              'legacy alias: modular')
     parser.add_argument('--interactive', action='store_true', help='Prompt for presets even when stdin is redirected')
     parser.add_argument('--source', type=Path, required=True, help='Original Z_30_0120.bin, SHA-256 checked before decoding')

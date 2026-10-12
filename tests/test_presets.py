@@ -25,12 +25,14 @@ class PresetTests(unittest.TestCase):
     def test_aliases_and_duplicates_have_stable_order(self):
         selected, features = resolve_presets(['shutter-sound', 'full', 'm900', 'full'])
         self.assertEqual(selected, ['shutter-sound', 'full', 'm900'])
-        self.assertEqual(features, ['liveview-dual', 'm900', 'shutter-sound', 'mtp-fast', 'module-host', 'video-rot'])
+        self.assertEqual(features, ['liveview-dual', 'm900', 'shutter-sound', 'mtp-fast', 'module-host', 'video-rot',
+                          'bitrate-slowmo-uncap'])
         self.assertEqual(resolve_presets(['modular', 'full'])[1], features)
 
     def test_full_enables_all_features_and_modular_keeps_its_scope(self):
         self.assertEqual(resolve_presets('full')[1],
-                         ['liveview-dual', 'm900', 'shutter-sound', 'mtp-fast', 'module-host', 'video-rot'])
+                         ['liveview-dual', 'm900', 'shutter-sound', 'mtp-fast', 'module-host', 'video-rot',
+                          'bitrate-slowmo-uncap'])
         self.assertEqual(resolve_presets('modular')[1],
                          ['liveview-dual', 'm900', 'shutter-sound', 'module-host'])
         self.assertEqual(resolve_presets(['full', 'mtp-fast', 'modular'])[1],
@@ -40,7 +42,8 @@ class PresetTests(unittest.TestCase):
         self.assertEqual(resolve_presets(['m900', 'liveview-dual'])[1],
                          ['liveview-dual', 'm900'])
         self.assertEqual(resolve_presets(['mtp-fast', 'full'])[1],
-                         ['liveview-dual', 'm900', 'shutter-sound', 'mtp-fast', 'module-host', 'video-rot'])
+                         ['liveview-dual', 'm900', 'shutter-sound', 'mtp-fast', 'module-host', 'video-rot',
+                          'bitrate-slowmo-uncap'])
 
     def test_invalid_and_empty_selection(self):
         for selection in ([], 'unknown', ['full', 'unknown']):
@@ -57,6 +60,15 @@ class PresetTests(unittest.TestCase):
                          resolve_presets(['video-rot', 'full'])[1])
         with patch('builtins.input', return_value='7'), patch('sys.stdout', new=io.StringIO()):
             self.assertEqual(choose_presets(), ['video-rot'])
+
+    def test_bitrate_slowmo_uncap_is_in_full_and_composes_in_stable_order(self):
+        self.assertIn('bitrate-slowmo-uncap', resolve_presets()[1])
+        self.assertNotIn('bitrate-slowmo-uncap', resolve_presets('modular')[1])
+        self.assertEqual(resolve_presets('bitrate-slowmo-uncap')[1], ['bitrate-slowmo-uncap'])
+        self.assertEqual(resolve_presets(['bitrate-slowmo-uncap', 'video-rot'])[1],
+                         ['video-rot', 'bitrate-slowmo-uncap'])
+        with patch('builtins.input', return_value='8'), patch('sys.stdout', new=io.StringIO()):
+            self.assertEqual(choose_presets(), ['bitrate-slowmo-uncap'])
 
     def test_interactive_numbers_names_and_retry(self):
         with patch('builtins.input', side_effect=['0', '2, m900 2']), patch('sys.stdout', new=io.StringIO()):
