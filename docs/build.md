@@ -4,7 +4,7 @@
 
 ## 运行
 
-需要 Python 3.10+。声音功能需要 Keystone，首次安装依赖；固件不需要手动解包：
+需要 Python 3.10+。声音功能和 `mtp-fast` 需要 Keystone，首次安装依赖；固件不需要手动解包：
 
 ```powershell
 python -m pip install '.[sound]'
@@ -12,7 +12,9 @@ New-Item -ItemType Directory -Force output | Out-Null
 python patch.py --source path/to/Z_30_0120.bin --output output/EG209020.BIN
 ```
 
-可明确指定 `full`、`liveview-dual`、`shutter-sound`、`m900`；默认 full。单独同屏和 M900 只需要标准库。输出和同名 JSON 必须不存在，程序拒绝覆盖。CLI 通过 Python 运行。
+可明确指定 `full`、`liveview-dual`、`shutter-sound`、`m900`；默认 full。单独同屏和 M900 只需要标准库。
+
+`mtp-fast` 是独立预设，只含 MTP 属性列表加速，不包含在 full 或其他预设中，也不与它们组合；它同样通过 `.[sound]` 安装的 Keystone 汇编。输出和同名 JSON 必须不存在，程序拒绝覆盖。CLI 通过 Python 运行。
 
 原始包大小为 34,496,798 字节，SHA-256 为：
 

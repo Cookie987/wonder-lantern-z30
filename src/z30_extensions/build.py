@@ -6,7 +6,7 @@ from .platform.z30_120 import BASE
 
 
 def build(source, preset='full'):
-    if preset not in ('full', 'liveview-dual', 'm900', 'shutter-sound', 'modular'):
+    if preset not in ('full', 'liveview-dual', 'm900', 'shutter-sound', 'modular', 'mtp-fast'):
         raise ValueError('Unknown feature preset')
     if preset == 'liveview-dual':
         return build_dual(source)
@@ -23,6 +23,9 @@ def build(source, preset='full'):
     if preset in ('full', 'shutter-sound', 'modular'):
         from .features.shutter_sound import add
         add(plan, modules=preset == 'modular')
+    if preset == 'mtp-fast':
+        from .features.mtp_fast import add
+        add(plan)
     output, report = plan.finish()
     for address, expected in VIDEO_STOCK_WINDOWS:
         if output[address - BASE:address - BASE + len(expected)] != expected:

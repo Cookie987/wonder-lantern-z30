@@ -24,7 +24,7 @@ def assemble(source, address, capacity):
     try:
         from keystone import Ks, KS_ARCH_ARM, KS_MODE_THUMB, KS_MODE_V8
     except ImportError as error:
-        raise ValueError('Sound feature requires keystone-engine; install the sound optional dependency') from error
+        raise ValueError('This feature requires keystone-engine; install the sound optional dependency') from error
     raw, _ = Ks(KS_ARCH_ARM, KS_MODE_THUMB | KS_MODE_V8).asm(source, addr=address, as_bytes=True)
     if raw is None or len(raw) > capacity:
         raise ValueError(f'Assembled function exceeds its {capacity}-byte slot')
