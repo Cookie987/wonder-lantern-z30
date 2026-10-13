@@ -5,7 +5,7 @@
 from .sound_layout import *
 from ..assembly import constant, invoke
 
-def ui_code(f, strings, fixed, file_names, errors, file_ids, switch_ids, anchor_table, template, child_templates, extension=None):
+def ui_code(f, strings, fixed, file_names, errors, file_ids, switch_ids, anchor_table, template, child_templates, extension=None, sidebar_parent=None):
     code = {}
     allocation_size = NEW_SIZE
     module_copy = module_labels = getter_check = getter_result = route_extra = route_action = action_extra = ''
@@ -27,6 +27,10 @@ def ui_code(f, strings, fixed, file_names, errors, file_ids, switch_ids, anchor_
     c = constant
     def call(name): return invoke(f[name])
     native = lambda address: invoke(address, thumb=address != 0x10199bdc)
+    sidebar_refresh = ''
+    if sidebar_parent:
+        sidebar_refresh = f"""{c('r0',sidebar_parent)}ldr r0,[r0,#12];cmp r0,#0;beq done;
+            mov r8,r0;movs r1,#1;{native(0x104546b0)}mov r0,r8;{native(0x10454226)}"""
     code['ensure']=f"""
             push {{r4-r6,lr}}; {call('get')} cmp r0,#0; bne done;
             {c('r0',allocation_size+31)} movs r1,#0; {native(0x10211f4c)} cmp r0,#0; beq done;
@@ -44,48 +48,54 @@ def ui_code(f, strings, fixed, file_names, errors, file_ids, switch_ids, anchor_
         """
 
     code['labels']=f"""
-            push {{r4-r8,lr}};{c('r4',fixed)} movs r5,#39;movs r6,#15;
-            fixed_loop: ldr r0,[r4],#4;mov r1,r5;movs r2,#0;{native(0x10454efe)}
+            push {{r4-r8,lr}};{c('r4',fixed)} ldr r0,[r4],#4;
+            movs r1,#39;movs r2,#0;{call('text_entry')} movs r5,#40;movs r6,#14;
+            fixed_loop: ldr r0,[r4],#4;mov r1,r5;movs r2,#0;{call('text')}
             adds r5,#1;subs r6,#1;bne fixed_loop;
             {call('get')} mov r4,r0;{c('r0',strings['off'])} cmp r4,#0;beq enabled;
             ldr r1,[r4,#{ENABLED}];cmp r1,#1;bne enabled;{c('r0',strings['on'])}
-            enabled: movs r1,#54;movs r2,#0;{native(0x10454efe)}
+            enabled: movs r1,#54;movs r2,#0;{call('text')}
             {c('r0',strings['none'])} cmp r4,#0;beq selected;
             ldr r1,[r4,#{LENGTH}];cmp r1,#0;beq selected;
             ldr r1,[r4,#{SELECTED}];cmp r1,#4;bhi selected;
             {c('r0',file_names)} ldr r0,[r0,r1,lsl #2];
-            selected: movs r1,#55;movs r2,#0;{native(0x10454efe)}
-            {c('r0',strings['empty'])} movs r1,#56;movs r2,#0;{native(0x10454efe)}
-            {c('r0',strings['current'])} movs r1,#57;movs r2,#0;{native(0x10454efe)}
+            selected: movs r1,#55;movs r2,#0;{call('text')}
+            {c('r0',strings['empty'])} movs r1,#56;movs r2,#0;{call('text')}
+            {c('r0',strings['current'])} movs r1,#57;movs r2,#0;{call('text')}
             movs r5,#0;
             switch_loop: {c('r0',strings['empty'])} cmp r4,#0;beq switch_put;
             ldr r1,[r4,#{ENABLED}];cmp r1,r5;bne switch_put;{c('r0',strings['current'])}
-            switch_put: add r1,r5,#58;movs r2,#0;{native(0x10454efe)}
+            switch_put: add r1,r5,#58;movs r2,#0;{call('text')}
             adds r5,#1;cmp r5,#2;bne switch_loop;
             movs r5,#0;
             files_loop: {c('r0',strings['empty'])} cmp r4,#0;beq file_put;
             ldr r1,[r4,#{LENGTH}];cmp r1,#0;beq file_put;
             ldr r1,[r4,#{SELECTED}];cmp r1,r5;bne file_put;{c('r0',strings['current'])}
-            file_put: add r1,r5,#60;movs r2,#0;{native(0x10454efe)}
+            file_put: add r1,r5,#60;movs r2,#0;{call('text')}
             adds r5,#1;cmp r5,#5;bne files_loop;
             cmp r4,#0;beq done;ldr r1,[r4,#{RESULT}];cmp r1,#7;bhi done;cmp r1,#0;beq done;
-            {c('r0',errors)} ldr r5,[r0,r1,lsl #2];mov r0,r5;movs r1,#40;movs r2,#0;{native(0x10454efe)}
-            mov r0,r5;movs r1,#52;movs r2,#0;{native(0x10454efe)}
-            mov r0,r5;movs r1,#53;movs r2,#0;{native(0x10454efe)}
+            {c('r0',errors)} ldr r5,[r0,r1,lsl #2];mov r0,r5;movs r1,#40;movs r2,#0;{call('text')}
+            mov r0,r5;movs r1,#52;movs r2,#0;{call('text')}
+            mov r0,r5;movs r1,#53;movs r2,#0;{call('text')}
             done:{module_labels} movs r0,#0;pop {{r4-r8,pc}};
         """
 
+    # The stock layout constructs a static text widget (kind 1). Nikon's
+    # binder clears through kind 0 before changing to dynamic ASCII kind 2
+    # or UTF-16 kind 3, and preserves the kind on repeated refreshes.
     code['render']=f"""
             push {{r4-r8,lr}};mov r4,r0;{call('labels')}
             ldr r5,[r4,#36];cmp r5,#0;beq done;ldr r6,[r4,#40];movs r7,#0;
             next_row:ldrh r0,[r6,#20];cmp r7,r0;bhs header;
             mov r0,r5;movs r1,#1;mov r2,r7;{native(0x1045745e)} mov r8,r0;
-            ldr r0,[r6,#12];movs r1,#28;mla r0,r7,r1,r0;ldr r1,[r0];mov r0,r8;{native(0x104546c6)}
+            ldr r0,[r6,#12];movs r1,#28;mla r0,r7,r1,r0;ldr r1,[r0];mov r0,r8;{call('text_bind')}
             mov r0,r5;mov r1,r7;movs r2,#0;{native(0x104574a8)} mov r8,r0;
-            ldr r0,[r6,#12];movs r1,#28;mla r0,r7,r1,r0;ldr r1,[r0,#20];mov r0,r8;{native(0x104546c6)}
+            ldr r0,[r6,#12];movs r1,#28;mla r0,r7,r1,r0;ldr r1,[r0,#20];mov r0,r8;{call('text_bind')}
             adds r7,#1;b next_row;
             header:ldr r1,[r4,#12];{c('r0',0xa18)}{native(0x10454210)}
-            ldr r1,[r6,#8];ldr r1,[r1];{native(0x104546c6)}
+            cmp r0,#0;beq done;mov r8,r0;
+            mov r0,r8;ldr r1,[r6,#8];ldr r1,[r1];{call('text_bind')}
+            {sidebar_refresh}
             done:movs r0,#0;pop {{r4-r8,pc}};
         """
 

@@ -26,6 +26,8 @@ def add(plan, modules=False):
              'shot': 192, 'ensure': 512, 'labels': 1024, 'render': 512,
              'action': 768, 'row': 256, 'getter': 256, 'route': 320, 'setup_init': 128}
     f = {name: plan.alloc(bytes(size)) for name, size in sizes.items()}
+    from . import ui_text
+    text_resources = ui_text.prepare(plan, f)
     tables = {i: plan.alloc(bytes(32)) for i in (PAGE_INDEX, FILES_INDEX, SWITCH_INDEX)}
     metas = {i: plan.alloc(bytes(28)) for i in tables}
     texts = dict(entry='Shutter sound', title='Shutter sound', files='Select sound', switch='Sound enabled',
@@ -36,7 +38,7 @@ def add(plan, modules=False):
                  busy='Sound busy', queue='Play failed', audio='Audio failed')
     if modules:
         texts['entry'] = texts['title'] = 'Extensions'
-    strings = {key: plan.alloc(text.encode() + b'\0') for key, text in texts.items()}
+    strings = {key: text_resources.alloc(text) for key, text in texts.items()}
     paths = [plan.alloc(path.encode() + b'\0') for path in ['A:\\SHUTTER.WAV'] + [f'A:\\SHUTTER\\{i}.WAV' for i in range(1, 5)]]
     path_table = plan.alloc(struct.pack('<5I', *paths))
     file_names = plan.alloc(struct.pack('<5I', *[strings[k] for k in ('root', 'one', 'two', 'three', 'four')]))
@@ -45,7 +47,11 @@ def add(plan, modules=False):
     errors = plan.alloc(struct.pack('<8I', *[strings[k] for k in ('title', 'missing', 'read', 'invalid', 'close', 'busy', 'queue', 'audio')]))
     file_ids = plan.alloc(struct.pack('<5I', *FILE_IDS))
     switch_ids = plan.alloc(struct.pack('<2I', *SWITCH_IDS))
-    template = plan.alloc(struct.pack('<11I', (PAGE_INDEX << 16) | 2, SETUP_OBJECT, 0, 0,
+    # Settings is a child of the native tab container. Returning to the
+    # settings object directly skips reconstruction of the shared sidebar.
+    # Match native settings leaf pages by parenting to that container.
+    setup_parent = im.words(SETUP_OBJECT + 4, 1)[0]
+    template = plan.alloc(struct.pack('<11I', (PAGE_INDEX << 16) | 2, setup_parent, 0, 0,
                                     tables[PAGE_INDEX], 0, 0, 0, 0, 0, metas[PAGE_INDEX]))
     child_templates = {i: plan.alloc(struct.pack('<11I', (i << 16) | 2, 0, 0, 0, tables[i],
                                                 0, 0, 0, 0, 0, metas[i])) for i in (FILES_INDEX, SWITCH_INDEX)}
@@ -58,30 +64,31 @@ def add(plan, modules=False):
         metas[mh.PAGE_INDEX] = module_meta
         child_templates[mh.PAGE_INDEX] = plan.alloc(struct.pack('<11I',
             (mh.PAGE_INDEX << 16) | 2, 0, 0, 0, module_table, 0, 0, 0, 0, 0, module_meta))
-        extension = mh.prepare(plan, f)
+        extension = mh.prepare(plan, f, text_resources)
         extension['template'] = child_templates[mh.PAGE_INDEX]
     codes = audio_code(f, path_table, anchor_table)
     codes.update(ui_code(f, strings, fixed, file_names, errors, file_ids, switch_ids,
-                         anchor_table, template, child_templates, extension))
+                         anchor_table, template, child_templates, extension, sidebar_parent=setup_parent))
     c = constant
     call = lambda name: invoke(f[name])
-    module_row = ''
+    owned_pages = [PAGE_INDEX, FILES_INDEX, SWITCH_INDEX]
     if modules:
-        module_row = f"beq labels; {c('r4',(mh.PAGE_INDEX << 16)|2)} cmp r3,r4;"
-    codes['row'] = f"""
-        push {{r0-r4,lr}}; {c('r4', SETUP_OBJECT)} cmp r0,r4; bne owned;
-        ldrh r3,[r1,#24]; {c('r4', ENTRY_ID)} cmp r3,r4; bne restore;
-        {call('labels')} b restore;
-        owned: ldr r3,[r0]; {c('r4', (PAGE_INDEX << 16) | 2)} cmp r3,r4; beq labels;
-        {c('r4', (FILES_INDEX << 16) | 2)} cmp r3,r4; beq labels;
-        {c('r4', (SWITCH_INDEX << 16) | 2)} cmp r3,r4; {module_row} bne restore;
-        labels: {call('labels')}
-        restore: pop {{r0-r4,lr}}; push.w {{r0-r11,lr}}; mov r7,r0; ldr r0,[r0,#40];
-        .balign 4; ldr.w pc,[pc,#0]; .word 0x1045e345;
-    """
+        owned_pages.append(mh.PAGE_INDEX)
+    codes['row'] = ui_text.row_code(f, SETUP_OBJECT, ENTRY_ID, owned_pages)
+    setup_controls = im.read(setup_header[3], 38 * 28)
+    entry = bytearray(setup_controls[-28:])
+    struct.pack_into('<I', entry, 0, 39)
+    # Row bit 9 selects ASCII kind 2; bit 13 selects Unicode kind 3.
+    struct.pack_into('<I', entry, 16, 0x3001)
+    struct.pack_into('<I', entry, 24, ENTRY_ID)
+    unicode_controls = plan.alloc(setup_controls + entry)
+    struct.pack_into('<I', entry, 16, 0x1201)
+    controls_address = plan.alloc(setup_controls + entry)
+    ui_text.configure_entry(plan, f, controls_address, unicode_controls)
+
     original_setup = im.words(im.words(SETUP_OBJECT + 16, 1)[0], 1)[0]
     codes['setup_init'] = f"""
-        push {{r4,lr}}; mov r4,r0; {call('labels')} mov r0,r4;
+        push {{r4,lr}}; mov r4,r0; {call('entry_select')} {call('labels')} mov r0,r4;
         {invoke(original_setup)} pop {{r4,pc}};
     """
     code_sizes = {}
@@ -115,12 +122,6 @@ def add(plan, modules=False):
         return plan.alloc(struct.pack('<' + 'I' * len(words), *words))
     entry_events = events(f['open'])
     owned_events = events(f['action'])
-    setup_controls = im.read(setup_header[3], 38 * 28)
-    entry = bytearray(setup_controls[-28:])
-    struct.pack_into('<I', entry, 0, 39)
-    struct.pack_into('<I', entry, 16, 0x1201)
-    struct.pack_into('<I', entry, 24, ENTRY_ID)
-    controls_address = plan.alloc(setup_controls + entry)
     dispatch_address = plan.alloc(im.read(setup_header[4], 38 * 4) + struct.pack('<I', entry_events))
     plan.edit(SETUP_META_SOURCE + 12, struct.pack('<2I', controls_address, dispatch_address), 'Sound settings entry tables')
     plan.edit(SETUP_META_SOURCE + 20, struct.pack('<I', (setup_header[5] & 0xFFFF0000) | 39), 'Settings row count with sound only')
@@ -129,6 +130,8 @@ def add(plan, modules=False):
     # Stock leaf page 0x18f contains both a header and the native back bitmap.
     # Copy those records from the caller's stock, then use dynamic header text.
     leaf = im.words(0xC1832D24 + 0x18F * 44, 11)
+    if not setup_parent or leaf[1] != setup_parent:
+        raise ValueError('Unexpected native settings tab parent')
     leaf_header = list(im.words(leaf[10], 7))
     if leaf_header[0] != 0x1008:
         raise ValueError('Unexpected native leaf menu flags')
@@ -137,7 +140,8 @@ def add(plan, modules=False):
         raise ValueError('Native back icon record missing')
     if im.words(leaf_header[2] + 64, 8)[1] != 0:
         raise ValueError('Unexpected leaf layout terminator')
-    struct.pack_into('<I', base_layout, 4, 2)
+    # Layout kind 1 constructs a text widget. Kind 2 is not the dynamic
+    # string selector; the render callback supplies that selector separately.
     struct.pack_into('<I', base_layout, 28, 0xA18 << 16)
 
     used = set()
@@ -186,10 +190,18 @@ def add(plan, modules=False):
             boxes.extend((72, y, 702, y + 48))
             label_right = (350 if row < 2 else 696) if index == PAGE_INDEX else (350 if row == 2 else 696) if modules and index == mh.PAGE_INDEX else 550
             labels.extend((78, y + 4, label_right, y + 44))
-            values.extend((366 if index == PAGE_INDEX or modules and index == mh.PAGE_INDEX else 570, y, 696, y + 48))
+            has_value = (row < 2 if index == PAGE_INDEX else row == 2 if modules and index == mh.PAGE_INDEX else True)
+            value_left = (366 if index == PAGE_INDEX or modules and index == mh.PAGE_INDEX else 570) if has_value else 696
+            # Native row composition clips its label at the value box even
+            # when that box contains an empty string. Give label-only rows
+            # a zero-width value box at the right edge.
+            values.extend((value_left, y, 696, y + 48))
         rectangles = [plan.alloc(struct.pack('<' + 'h' * len(rect), *rect)) for rect in (boxes, labels, values)]
         geometry = plan.alloc(struct.pack('<4I', count, *rectangles))
         header = leaf_header.copy()
+        # Bit 3 makes the leaf replace its parent's drawing. Keep the
+        # ancestor tab container visible while retaining owned leaf controls.
+        header[0] &= ~8
         header[1:5] = [geometry, layout_address, control_address, dispatch]
         # Low half: total rows. High half: rows per screen. The source leaf
         # only shows three; owned geometry fits all rows and must own capacity.
@@ -202,7 +214,8 @@ def add(plan, modules=False):
                              'geometry': hex(geometry), 'label_rectangles': [labels[i:i+4] for i in range(0, len(labels), 4)],
                              'value_rectangles': [values[i:i+4] for i in range(0, len(values), 4)],
                              'title_index': title, 'label_start': label, 'value_start': value,
-                             'back_icon': True, 'header_object_id': hex(0xA18)}
+                             'back_icon': True, 'header_object_id': hex(0xA18),
+                             'ancestor_sidebar_visible': True, 'layout_flags': hex(header[0])}
     for site, name, length in ((0x1045E33C, 'row', 8), (0x104571FE, 'getter', 12),
                                (0x10072598, 'shot', 8), (0x1006BEDE, 'config', 12),
                                (0x1006BE90, 'data', 8), (0x103CE804, 'route', 8)):
@@ -211,10 +224,17 @@ def add(plan, modules=False):
         'functions': {k: hex(v | 1) for k, v in f.items()}, 'code_sizes': code_sizes,
         'pages': pages, 'state_anchor': hex(STATE_ANCHOR + 16), 'anchor_table': hex(anchor_table),
         'page_template': hex(template), 'persistent_state_size': (extension['allocation_size'] if extension else NEW_SIZE) + 31,
+        'root_parent': hex(setup_parent),
         'page_offsets': {str(PAGE_INDEX): PAGE_OFFSET, str(FILES_INDEX): FILES_OFFSET, str(SWITCH_INDEX): SWITCH_OFFSET, **({str(mh.PAGE_INDEX): mh.PAGE_OFFSET} if modules else {})},
         'control_identifiers': {str(index): list(identifiers) for index, _, _, _, _, identifiers in page_specs},
         'setup_entry_id': hex(ENTRY_ID), 'settings_count': 39,
+        'setup_entry_controls': {'ascii': hex(controls_address), 'utf16': hex(unicode_controls)},
+        'setup_entry_prefetch_refresh': True,
         'default_enabled': False, 'settings_persistence': 'RAM only; reset at reboot',
+        'ui_languages': {'26': 'zh-Hans', '27': 'zh-Hant', 'other': 'en'},
+        'ui_text_api': {'ascii': '0x10454efe', 'utf16': '0x10454f5a', 'language_key': '0x1400',
+                        'ascii_widget_kind': 2, 'utf16_widget_kind': 3, 'unicode_style': 120,
+                        'chinese_fonts': {'26': 2, '27': 0}, 'chinese_module_output_limit': 24},
         'sample_format': '8 kHz, mono, signed 16-bit, canonical 44-byte WAV, <=1.08 seconds',
         'card_paths': ['SHUTTER.WAV'] + [f'SHUTTER/{i}.WAV' for i in range(1, 5)],
         'selection_mark': '*', 'native_back_icon_preserved': True, 'no_status_ui': True,

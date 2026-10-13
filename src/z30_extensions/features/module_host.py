@@ -36,17 +36,17 @@ FUNCTION_SIZES = dict(module_get=128, module_labels=512, module_open=128,
                       module_validate=512, module_sync=256)
 
 
-def prepare(plan, f):
+def prepare(plan, f, text_resources):
     for name, size in FUNCTION_SIZES.items():
         f[name] = plan.alloc(bytes(size))
     api = plan.alloc(struct.pack('<5I', ABI, API_BYTES, 0x10465985,
                                  f['module_set_text'] | 1, f['module_set_handler'] | 1))
     path = plan.alloc(b'A:\\Z30\\CORE.ZMOD\0')
-    strings = {name: plan.alloc(value.encode('ascii') + b'\0') for name, value in
+    strings = {name: text_resources.alloc(value) for name, value in
                dict(title='SD Modules', load='Load CORE.ZMOD', run='Run module',
                     state='State', empty='', output='No module output').items()}
-    statuses = [plan.alloc(s.encode() + b'\0') for s in STATUS_TEXT]
-    errors = [plan.alloc(s.encode() + b'\0') for s in ERROR_TEXT]
+    statuses = [text_resources.alloc(s) for s in STATUS_TEXT]
+    errors = [text_resources.alloc(s) for s in ERROR_TEXT]
     status_table = plan.alloc(struct.pack('<4I', *statuses))
     error_table = plan.alloc(struct.pack('<' + 'I' * len(errors), *errors))
     fixed = plan.alloc(struct.pack('<7I', strings['title'], strings['title'],
@@ -63,7 +63,7 @@ def prepare(plan, f):
     '''
     code['module_labels'] = f'''
         push {{r4-r8,lr}}; {c('r4',fixed)} movs r5,#{ROOT_SLOT}; movs r6,#7;
-        again: ldr r0,[r4],#4; mov r1,r5; movs r2,#0; {native(0x10454EFE)}
+        again: ldr r0,[r4],#4; mov r1,r5; movs r2,#0; {call('text')}
         adds r5,#1; subs r6,#1; bne again;
         {call('module_get')} mov r4,r0; {c('r0',statuses[0])}
         cmp r4,#0; beq put_status;
@@ -71,9 +71,9 @@ def prepare(plan, f):
         cmp r1,#{len(errors)-1}; bhi phase; {c('r0',error_table)} ldr r0,[r0,r1,lsl #2]; b put_status;
         phase: ldr r1,[r4,#{PHASE}]; cmp r1,#3; bhi put_status;
         {c('r0',status_table)} ldr r0,[r0,r1,lsl #2];
-        put_status: movs r1,#{STATUS_SLOT}; movs r2,#0; {native(0x10454EFE)}
+        put_status: movs r1,#{STATUS_SLOT}; movs r2,#0; {call('text')}
         cmp r4,#0; beq done; ldrb r0,[r4,#{TEXT}]; cmp r0,#0; beq done;
-        add r0,r4,#{TEXT}; movs r1,#{LABEL_SLOT+3}; movs r2,#0; {native(0x10454EFE)}
+        add r0,r4,#{TEXT}; movs r1,#{LABEL_SLOT+3}; movs r2,#0; {call('text_ascii')}
         done: movs r0,#0; pop {{r4-r8,pc}};
     '''
     code['module_open'] = f'''
