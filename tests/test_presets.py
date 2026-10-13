@@ -64,9 +64,9 @@ class PresetTests(unittest.TestCase):
     def test_bitrate_slowmo_uncap_is_in_full_and_composes_in_stable_order(self):
         self.assertIn('bitrate-slowmo-uncap', resolve_presets()[1])
         self.assertNotIn('bitrate-slowmo-uncap', resolve_presets('modular')[1])
-        self.assertEqual(resolve_presets('bitrate-slowmo-uncap')[1], ['bitrate-slowmo-uncap'])
+        self.assertEqual(resolve_presets('bitrate-slowmo-uncap')[1], ['shutter-sound', 'bitrate-slowmo-uncap'])
         self.assertEqual(resolve_presets(['bitrate-slowmo-uncap', 'video-rot'])[1],
-                         ['video-rot', 'bitrate-slowmo-uncap'])
+                         ['shutter-sound', 'video-rot', 'bitrate-slowmo-uncap'])
         with patch('builtins.input', return_value='8'), patch('sys.stdout', new=io.StringIO()):
             self.assertEqual(choose_presets(), ['bitrate-slowmo-uncap'])
 

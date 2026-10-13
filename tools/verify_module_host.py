@@ -87,6 +87,9 @@ class Fixture(Context):
         if address == 0x103382A2:
             assert r[1:3] == [0, 0], 'Only read-only open is supported'
             path = int.from_bytes(u.mem_read(r[0], 4), 'little')
+            if bytes(u.mem_read(path, 16)).split(b'\0')[0] in (b'A:\\WL-SOUND.CFG',b'A:\\WL-VIDEO.CFG'):
+                u.mem_write(r[0] + 8, struct.pack('<i', -1))
+                return self.ret(mh.SUCCESS + 1)
             assert bytes(u.mem_read(path, 17)).split(b'\0')[0] == b'A:\\Z30\\CORE.ZMOD'
             if self.payload is None:
                 u.mem_write(r[0] + 8, struct.pack('<i', -1))

@@ -2,6 +2,54 @@
 
 2026-10-13，用户在最终冷入口修复后实机反馈“一切正常”。这确认了用户此次菜单使用的结果；下文 QEMU、Unicorn 和构建检查仍各自保留验证范围，不扩展为其他固件功能或完整测试矩阵的实机证明。
 
+## 独立错误提示与声音记忆（2026-10-13）
+
+此后用户反馈，长错误提示写入标题会影响返回按钮。当前版本不再用 `Invalid WAV`、读取失败等信息替换声音页面的三个标题。错误使用独立提示页的正文控件 `0xA19` 和“确定”行，保留正常标题、返回按钮与左栏。提示页使用经原厂扫描核对为空闲的控件 ID `0x23F8`。确认或原生返回退出时，独立清理回调清除错误状态，避免下次操作再次显示旧提示。进入提示后显式请求整体刷新，避免只出现正文却缺少标题与确定行。
+
+声音开关与选中编号写入 SD 根目录 `WL-SOUND.CFG`。无有效配置时默认关闭；首次进入菜单或首次照片触发时建立私有状态并恢复配置，启用的选项会重新读取 WAV。初始化使用原子锁，配置检查版本、编号、开关、校验字段、读取长度；保存检查写入长度与关闭结果，失败提示“设置保存失败”。文件服务在任务上下文调用，不增加线程。这里的恢复时机为首次使用，并未新增相机启动任务。文件被删除、更换卡、记录损坏或恢复加载失败时不能保证此前的声音可用，默认保持关闭。
+
+最终本地 `full` 研究候选与报告：`output/sound-memory/final/EG209020.BIN`、`EG209020.json`，SHA-256 `7c55da27111ab5605b6e3d6c13b3ab0b9074c8c8525ec975eaf7d17954ec5384`。本次不提交或推送这些产物。
+
+验证分为以下范围：
+
+- 34 项单元测试通过；三种声音相关预设的 CRC 和逐字节重复构建通过。原 SD 模块宿主的指令级加载/运行/失败回归通过。
+- `tools/verify_sound_settings.py` 的 15 个指令级案例包含五个文件编号 × 两种开关的新 RAM 实例恢复、五类无效配置、短写、关闭失败、声音缺失和无效 WAV。SD、分配服务使用明确的模型，WAV 校验、转换及配置 ARM 代码实际执行。
+- QEMU 配置诊断 `build/ui-qemu/sound-restore-delivery/session.json` 的 12 个检查包含未先进入菜单的首次照片触发恢复、十种配置保存与重载、无效记录拒绝。为了明确隔离硬件缺口，诊断临时替换命名的 SD 服务入口；这些模型修改只存在于运行中的模拟器，未进入候选固件。这里没有实际 SD 文件系统、扬声器播放或自然冷启动验证。
+- 简体提示与返回诊断 `build/ui-qemu/sound-dialog-cleanup-hans/session.json` 使用原生触摸输入关闭提示，包含“确定”和提示页右上返回；两轮回到原厂菜单均检查左栏像素及按钮区域完全为黑色。正文、确定行与标题来自客体原厂控件和 GPU。繁体与英文对照分别位于 `build/ui-qemu/sound-dialog-delivery-hant/` 和 `sound-dialog-delivery-en/`，同样通过触摸确认、正文控件、确认行像素、侧栏和原厂菜单按钮区域检查。
+- 五个页面的原生构造、侧栏和固定标题回归位于 `build/ui-qemu/sound-pages-delivery/`；注入错误并重入后，菜单标题仍保持正确槽位和 UTF-16 控件类型。
+
+示例命令（先在 Windows 生成模型代码，再在 WSL 运行 QEMU）：
+
+```powershell
+python tools/verify_sound_settings_qemu.py --prepare-fixture build/sound-memory/qemu-sd-fixture.json
+python tools/verify_sound_settings.py --source ../Z_30_0120.bin --image output/sound-memory/final/EG209020.BIN --report output/sound-memory/final/EG209020.json --output build/sound-memory/persistence-delivery.json
+```
+
+```sh
+python3 tools/verify_sound_settings_qemu.py \
+  --fixture build/sound-memory/qemu-sd-fixture.json --qemu-root ../z30-qemu \
+  --image output/sound-memory/final/EG209020.BIN \
+  --report output/sound-memory/final/EG209020.json \
+  --output-dir build/ui-qemu/sound-restore-delivery
+
+python3 tools/verify_ui_qemu.py --qemu-root ../z30-qemu \
+  --image output/sound-memory/final/EG209020.BIN \
+  --report output/sound-memory/final/EG209020.json \
+  --output-dir build/ui-qemu/sound-dialog-cleanup-hans \
+  --back-cycles 2 --touch-back --verify-return --verify-sidebar \
+  --verify-error-dialog --language zh-Hans
+```
+
+新增提示页和记忆功能尚无实机确认，不能沿用本文开头对上一版的“一切正常”反馈。下文错误标题截图和更早测试数量是历史修复阶段的记录，当前代码已改用独立提示正文。
+
+## 弹窗复查与截图采样修正
+
+进一步复查发现，旧截图采样可能在关闭提示后拍到“SD 卡功能”一行尚未画出文字的中间帧。灰色行背景已经占满该区域，补画白字不会增加非黑像素数量，因此仅按非黑像素选择样本可能把早期帧与完整帧视为相同，并选中早期帧。此次记录中，关闭后的白色像素从 2153、5729 逐步增加到 8318；另一次为 2153、3346、7175、8318，而非黑像素数量无法反映这些文字完成阶段。
+
+采样现在依次比较非黑像素、白色文字像素，并在相同分数时选择更晚的样本；不补画或修改任何像素。增加提示关闭后模块入口文字的像素检查，以及文字槽/控件状态诊断。试验性的固件刷新和矩形调整没有稳定解决旧采样问题，已撤回；当前固件仍与上述 SHA-256 的候选逐字节一致。
+
+`build/ui-qemu/popup-complete-frame-check/session.json` 记录三轮、九次提示操作，包含缺文件、无效 WAV 和保存失败提示，使用原生触摸确认或右上返回。九次关闭后的模块入口均有 1143 个白色文字像素；三次返回原厂菜单的按钮区域非黑像素均为零，左栏均为 16344。`error-dialog-0-3.png` 与 `error-dialog-0-3-closed.png` 分别显示独立错误正文及完整恢复的菜单。提示显示、关闭清理和返回检查通过；范围仍为辅助 QEMU 与明确错误状态输入。
+
 ## 重启后首次入口乱码
 
 用户反馈：重启后第一次进入菜单，入口乱码，操作刷新后恢复。上一版在设置初始化回调里切换行表，却未处理原厂调用方提前保存的旧入口行指针。首次构造可能仍按旧行标志创建控件，而槽位 39 已采用新语言编码；后续刷新重新读取元数据，因而恢复正常。
@@ -120,3 +168,13 @@ python3 tools/verify_ui_qemu.py \
 后一个检查包含两轮自定义菜单侧栏显示、触摸返回、原厂菜单上下移动、注册表释放与按钮区域清除，并从自定义根页面触摸相机标签，核对原厂拍摄菜单编号 `0x27`。仍是辅助 QEMU 与合成触摸包验证，未据此标记实机验证通过。32 项单元测试及三种预设 CRC/逐字节重复构建检查通过。
 
 验证使用辅助启动和暂停调试器注入经过原字节核对的 ROM 修改，保留 QEMU 原厂固件身份检查。调用和错误状态是明确的诊断输入，并非自然按键路径测试。该 QEMU 验证不证明实机 UI、触摸、声音播放、SD 模块运行或可刷性；用户实际菜单反馈单独记录在本文开头。输出 EG 是研究用主模块，不是完整相机更新包。
+
+## 机内码率档位回归
+
+新增功能并入 `bitrate-slowmo-uncap`，不新增预设。单独选择时自动包含声音菜单框架，`full` 的根菜单新增第六项“视频码率”。原始、均衡、高质量三档使用 `*` 标记，独立配置文件为 `WL-VIDEO.CFG`。详细参数与复现命令见[码率说明](bitrate-slowmo-uncap.md)。
+
+完整组合 EG 的 SHA-256 为 `d1ff55a024b262eba12235f2fc07373a78e8d5a70f5bc5dd6e7c2a145137af61`。`build/ui-qemu/bitrate-flow-hans/session.json` 记录首次不进入菜单的配置恢复、三档共 90 条原厂参数检查、档位保存与重入标记、保存失败正文提示、确定及原厂触摸返回关闭、最终原厂菜单侧栏保留和返回图标区域清除。繁体中文及英文的对应报告为 `bitrate-flow-hant/session.json`、`bitrate-flow-en/session.json`，每档核对一条代表参数并执行相同菜单流程。单独 `bitrate-slowmo-uncap` 预设的相同 QEMU 流程也通过，报告为 `bitrate-standalone/session.json`；其产物摘要为 `9f5c71f97ba6c99ebee6dab4c1ee979fb881eba1b26e01f799cb2da7f0e6a026`。
+
+原厂字体不含“厂”字的所需字形，因此中文菜单使用“原始”，对应英文 Stock。截图直接来自客体图形缓冲。调试输入下页面重建和触摸分派异步进行，测试要求活动页面转换，并在下一轮操作前完成原厂绘制采样；返回图标检查矩形为 `(636,4)-(716,52)`，不包含原厂标题分隔线。
+
+SD 服务由测试工具显式替换；错误分支通过独立诊断写入失败触发。没有测试物理 SD 卡或编码器输出，不据此标记实机通过。34 项单元测试、完整及单独预设各 96 项指令测试、15 项声音保存回归、完整组合的模块加载回归，以及重复构建/CRC 检查通过。

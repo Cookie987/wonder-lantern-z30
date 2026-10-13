@@ -9,7 +9,7 @@ from .sound_audio import audio_code
 from .sound_ui import ui_code
 
 
-def add(plan, modules=False):
+def add(plan, modules=False, bitrate=False):
     im = plan.image
     if im.read(STATE_ANCHOR, 44) != bytes(44):
         raise ValueError('Sound state requires the unused stock page-zero slot')
@@ -25,18 +25,22 @@ def add(plan, modules=False):
              'complete': 384, 'open': 192, 'config': 320, 'data': 320,
              'shot': 192, 'ensure': 512, 'labels': 1024, 'render': 512,
              'action': 768, 'row': 256, 'getter': 256, 'route': 320, 'setup_init': 128}
+    sizes.update(ensure=768, action=1024, getter=384, show_error=192,
+                 save_settings=640, restore_settings=640)
+    sizes['settings_close'] = 128
+    sizes['dismiss_error'] = 96
     f = {name: plan.alloc(bytes(size)) for name, size in sizes.items()}
     from . import ui_text
     text_resources = ui_text.prepare(plan, f)
-    tables = {i: plan.alloc(bytes(32)) for i in (PAGE_INDEX, FILES_INDEX, SWITCH_INDEX)}
+    tables = {i: plan.alloc(bytes(32)) for i in (PAGE_INDEX, FILES_INDEX, SWITCH_INDEX, POPUP_INDEX)}
     metas = {i: plan.alloc(bytes(28)) for i in tables}
     texts = dict(entry='Shutter sound', title='Shutter sound', files='Select sound', switch='Sound enabled',
                  enable='Enabled', file='Sound file', preview='Preview sound', reload='Reload sound',
                  off='OFF', on='ON', none='None', root='SHUTTER.WAV',
                  one='1.WAV', two='2.WAV', three='3.WAV', four='4.WAV', empty='', current='*',
                  missing='File not found', read='Read failed', invalid='Invalid WAV', close='Close failed',
-                 busy='Sound busy', queue='Play failed', audio='Audio failed')
-    if modules:
+                 busy='Sound busy', queue='Play failed', audio='Audio failed', ok='OK', save='Settings not saved')
+    if modules or bitrate:
         texts['entry'] = texts['title'] = 'Extensions'
     strings = {key: text_resources.alloc(text) for key, text in texts.items()}
     paths = [plan.alloc(path.encode() + b'\0') for path in ['A:\\SHUTTER.WAV'] + [f'A:\\SHUTTER\\{i}.WAV' for i in range(1, 5)]]
@@ -44,7 +48,7 @@ def add(plan, modules=False):
     file_names = plan.alloc(struct.pack('<5I', *[strings[k] for k in ('root', 'one', 'two', 'three', 'four')]))
     fixed = plan.alloc(struct.pack('<15I', *[strings[k] for k in
         ('entry', 'title', 'enable', 'file', 'preview', 'reload', 'off', 'on', 'root', 'one', 'two', 'three', 'four', 'switch', 'files')]))
-    errors = plan.alloc(struct.pack('<8I', *[strings[k] for k in ('title', 'missing', 'read', 'invalid', 'close', 'busy', 'queue', 'audio')]))
+    errors = plan.alloc(struct.pack('<9I', *[strings[k] for k in ('empty', 'missing', 'read', 'invalid', 'close', 'busy', 'queue', 'audio', 'save')]))
     file_ids = plan.alloc(struct.pack('<5I', *FILE_IDS))
     switch_ids = plan.alloc(struct.pack('<2I', *SWITCH_IDS))
     # Settings is a child of the native tab container. Returning to the
@@ -54,7 +58,7 @@ def add(plan, modules=False):
     template = plan.alloc(struct.pack('<11I', (PAGE_INDEX << 16) | 2, setup_parent, 0, 0,
                                     tables[PAGE_INDEX], 0, 0, 0, 0, 0, metas[PAGE_INDEX]))
     child_templates = {i: plan.alloc(struct.pack('<11I', (i << 16) | 2, 0, 0, 0, tables[i],
-                                                0, 0, 0, 0, 0, metas[i])) for i in (FILES_INDEX, SWITCH_INDEX)}
+                                                0, 0, 0, 0, 0, metas[i])) for i in (FILES_INDEX, SWITCH_INDEX, POPUP_INDEX)}
     extension = None
     if modules:
         from . import module_host as mh
@@ -66,14 +70,30 @@ def add(plan, modules=False):
             (mh.PAGE_INDEX << 16) | 2, 0, 0, 0, module_table, 0, 0, 0, 0, 0, module_meta))
         extension = mh.prepare(plan, f, text_resources)
         extension['template'] = child_templates[mh.PAGE_INDEX]
+    video = None
+    if bitrate:
+        from . import bitrate_ui as bu
+        bt = plan.alloc(bytes(32))
+        bm = plan.alloc(bytes(28))
+        tables[bu.PAGE_INDEX], metas[bu.PAGE_INDEX] = bt, bm
+        child_templates[bu.PAGE_INDEX] = plan.alloc(struct.pack('<11I',
+            (bu.PAGE_INDEX << 16) | 2, 0, 0, 0, bt, 0, 0, 0, 0, 0, bm))
+        video = bu.prepare(plan, f, text_resources, extension['allocation_size'] if extension else NEW_SIZE)
+        video['template'] = child_templates[bu.PAGE_INDEX]
+        video['root_row'] = 5 if modules else 4
     codes = audio_code(f, path_table, anchor_table)
+    from .sound_settings import settings_code
+    config_path = plan.alloc(b'A:\\WL-SOUND.CFG\0')
+    codes.update(settings_code(f, config_path))
     codes.update(ui_code(f, strings, fixed, file_names, errors, file_ids, switch_ids,
-                         anchor_table, template, child_templates, extension, sidebar_parent=setup_parent))
+                         anchor_table, template, child_templates, extension, sidebar_parent=setup_parent, video=video))
     c = constant
     call = lambda name: invoke(f[name])
-    owned_pages = [PAGE_INDEX, FILES_INDEX, SWITCH_INDEX]
+    owned_pages = [PAGE_INDEX, FILES_INDEX, SWITCH_INDEX, POPUP_INDEX]
     if modules:
         owned_pages.append(mh.PAGE_INDEX)
+    if bitrate:
+        owned_pages.append(bu.PAGE_INDEX)
     codes['row'] = ui_text.row_code(f, SETUP_OBJECT, ENTRY_ID, owned_pages)
     setup_controls = im.read(setup_header[3], 38 * 28)
     entry = bytearray(setup_controls[-28:])
@@ -152,13 +172,14 @@ def add(plan, modules=False):
         meta = im.words(page[10], 7)
         for row in range(meta[5] & 65535):
             used.add(struct.unpack('<H', im.read(meta[3] + row * 28 + 24, 2))[0])
-    if set(ROOT_IDS + FILE_IDS + SWITCH_IDS + (ENTRY_ID,)) & used:
+    if set(ROOT_IDS + FILE_IDS + SWITCH_IDS + (ENTRY_ID, POPUP_ID)) & used:
         raise ValueError('Custom control identifiers conflict with stock')
     pages = {}
     page_specs = [
         (PAGE_INDEX, 4, 41, 54, 40, ROOT_IDS),
         (FILES_INDEX, 5, 47, 60, 53, FILE_IDS),
         (SWITCH_INDEX, 2, 45, 58, 52, SWITCH_IDS),
+        (POPUP_INDEX, 1, 66, 56, 40, (POPUP_ID,)),
     ]
     if modules:
         available = [i for i in range(0x2400,0x3000) if i not in used and i not in ROOT_IDS + FILE_IDS + SWITCH_IDS + (ENTRY_ID,)]
@@ -168,19 +189,41 @@ def add(plan, modules=False):
         page_specs[0] = (PAGE_INDEX, 5, 41, 54, 40, ROOT_IDS + (available[4],))
         page_specs.append((mh.PAGE_INDEX, 4, mh.LABEL_SLOT, mh.EMPTY_SLOT, mh.TITLE_SLOT, module_ids))
         plan.features['module_host']['controls'] = list(module_ids)
+    if bitrate:
+        occupied = used | {ident for spec in page_specs for ident in spec[-1]}
+        ids = tuple(i for i in range(0x2400,0x3000) if i not in occupied)[:4]
+        if len(ids) != 4:
+            raise ValueError('No free bitrate control IDs')
+        root = page_specs[0]
+        page_specs[0] = (root[0],root[1]+1,*root[2:5],root[5]+(ids[3],))
+        page_specs.append((bu.PAGE_INDEX,3,bu.LABEL_SLOT,bu.MARK_SLOT,bu.TITLE_SLOT,ids[:3]))
+        bu.finish(plan,f,video,ids[:3])
     for index, count, label, value, title, identifiers in page_specs:
         controls = bytearray()
         for i in range(count):
             control = bytearray(entry)
-            struct.pack_into('<I', control, 0, mh.ROOT_SLOT if modules and index == PAGE_INDEX and i == 4 else label + i)
+            label_slot = (bu.ROOT_SLOT if bitrate and index == PAGE_INDEX and i == video['root_row']
+                          else mh.ROOT_SLOT if modules and index == PAGE_INDEX and i == 4 else label+i)
+            struct.pack_into('<I', control, 0, label_slot)
             struct.pack_into('<I', control, 16, 0x1209)
-            struct.pack_into('<I', control, 20, (mh.STATUS_SLOT if i == 2 else mh.EMPTY_SLOT) if modules and index == mh.PAGE_INDEX else (value + i if index != PAGE_INDEX or i < 2 else 56))
+            value_slot = (bu.CURRENT_SLOT if bitrate and index == PAGE_INDEX and i == video['root_row']
+                          else (mh.STATUS_SLOT if i == 2 else mh.EMPTY_SLOT) if modules and index == mh.PAGE_INDEX
+                          else value+i if index != PAGE_INDEX or i < 2 else 56)
+            struct.pack_into('<I', control, 20, value_slot)
             struct.pack_into('<I', control, 24, identifiers[i])
             controls.extend(control)
         control_address = plan.alloc(controls)
         dispatch = plan.alloc(struct.pack('<' + 'I' * count, *([owned_events] * count)))
         layout = bytearray(base_layout)
         struct.pack_into('<I', layout, 0, title)
+        if index == POPUP_INDEX:
+            # Preserve the normal header/back geometry; put messages in an
+            # independent body widget, never in the shared title widget.
+            body = bytearray(base_layout[:32])
+            struct.pack_into('<I', body, 0, 65)
+            struct.pack_into('<4h', body, 16, 150, 150, 620, 260)
+            struct.pack_into('<I', body, 28, 0xA19 << 16)
+            layout = layout[:64] + body + bytes(32)
         layout_address = plan.alloc(layout)
         # Menu boxes, label boxes, value boxes. Root filenames get a 330 px
         # value column; choices use a compact '*' marker in a 126 px column.
@@ -188,14 +231,17 @@ def add(plan, modules=False):
         for row in range(count):
             y = 62 + row * 52
             boxes.extend((72, y, 702, y + 48))
-            label_right = (350 if row < 2 else 696) if index == PAGE_INDEX else (350 if row == 2 else 696) if modules and index == mh.PAGE_INDEX else 550
+            video_row = bitrate and index == PAGE_INDEX and row == video['root_row']
+            label_right = (350 if row < 2 or video_row else 696) if index == PAGE_INDEX else (350 if row == 2 else 696) if modules and index == mh.PAGE_INDEX else 550
             labels.extend((78, y + 4, label_right, y + 44))
-            has_value = (row < 2 if index == PAGE_INDEX else row == 2 if modules and index == mh.PAGE_INDEX else True)
+            has_value = (row < 2 or video_row if index == PAGE_INDEX else row == 2 if modules and index == mh.PAGE_INDEX else True)
             value_left = (366 if index == PAGE_INDEX or modules and index == mh.PAGE_INDEX else 570) if has_value else 696
             # Native row composition clips its label at the value box even
             # when that box contains an empty string. Give label-only rows
             # a zero-width value box at the right edge.
             values.extend((value_left, y, 696, y + 48))
+        if index == POPUP_INDEX:
+            boxes, labels, values = [250,280,500,332], [270,284,480,328], [480,280,480,332]
         rectangles = [plan.alloc(struct.pack('<' + 'h' * len(rect), *rect)) for rect in (boxes, labels, values)]
         geometry = plan.alloc(struct.pack('<4I', count, *rectangles))
         header = leaf_header.copy()
@@ -207,7 +253,7 @@ def add(plan, modules=False):
         # only shows three; owned geometry fits all rows and must own capacity.
         header[5] = (count << 16) | count
         plan.put(metas[index], struct.pack('<7I', *header))
-        plan.put(tables[index], struct.pack('<8I', f['render'] | 1, zero | 1, 0x1045FDA1,
+        plan.put(tables[index], struct.pack('<8I', f['render'] | 1, (f['dismiss_error'] if index == POPUP_INDEX else zero) | 1, 0x1045FDA1,
                                            (zero + 4) | 1, zero | 1, zero | 1, zero | 1, 0x1045FDA1))
         pages[str(index)] = {'metadata': hex(metas[index]), 'functions': hex(tables[index]),
                              'count': count, 'controls': hex(control_address), 'layout': hex(layout_address),
@@ -223,14 +269,15 @@ def add(plan, modules=False):
     plan.features['shutter_sound'] = {
         'functions': {k: hex(v | 1) for k, v in f.items()}, 'code_sizes': code_sizes,
         'pages': pages, 'state_anchor': hex(STATE_ANCHOR + 16), 'anchor_table': hex(anchor_table),
-        'page_template': hex(template), 'persistent_state_size': (extension['allocation_size'] if extension else NEW_SIZE) + 31,
+        'page_template': hex(template), 'persistent_state_size': (video['allocation_size'] if video else extension['allocation_size'] if extension else NEW_SIZE) + 31,
         'root_parent': hex(setup_parent),
-        'page_offsets': {str(PAGE_INDEX): PAGE_OFFSET, str(FILES_INDEX): FILES_OFFSET, str(SWITCH_INDEX): SWITCH_OFFSET, **({str(mh.PAGE_INDEX): mh.PAGE_OFFSET} if modules else {})},
+        'page_offsets': {str(PAGE_INDEX): PAGE_OFFSET, str(FILES_INDEX): FILES_OFFSET, str(SWITCH_INDEX): SWITCH_OFFSET, str(POPUP_INDEX): POPUP_OFFSET, **({str(mh.PAGE_INDEX): mh.PAGE_OFFSET} if modules else {}), **({str(bu.PAGE_INDEX):video['page_offset']} if video else {})},
         'control_identifiers': {str(index): list(identifiers) for index, _, _, _, _, identifiers in page_specs},
         'setup_entry_id': hex(ENTRY_ID), 'settings_count': 39,
         'setup_entry_controls': {'ascii': hex(controls_address), 'utf16': hex(unicode_controls)},
         'setup_entry_prefetch_refresh': True,
-        'default_enabled': False, 'settings_persistence': 'RAM only; reset at reboot',
+        'default_enabled': False, 'settings_persistence': 'SD WL-SOUND.CFG; restore on first menu entry or photo trigger',
+        'error_ui': 'Native dialog body and OK control; stable menu titles',
         'ui_languages': {'26': 'zh-Hans', '27': 'zh-Hant', 'other': 'en'},
         'ui_text_api': {'ascii': '0x10454efe', 'utf16': '0x10454f5a', 'language_key': '0x1400',
                         'ascii_widget_kind': 2, 'utf16_widget_kind': 3, 'unicode_style': 120,

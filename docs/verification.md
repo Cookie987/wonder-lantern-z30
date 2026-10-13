@@ -1,6 +1,8 @@
 # 离线验证
 
-UI 标题、模块输出裁剪修复与原生 QEMU 绘制回归见 [UI QEMU 验证](ui-qemu.md)。
+UI 标题、侧栏、返回按钮、双语文字、首次入口乱码，以及独立错误提示页和声音配置保存/恢复的回归见 [UI QEMU 验证](ui-qemu.md)。声音配置的文件服务测试使用明确模型，不能代替实机断电和 SD 写入验证。
+
+机内码率档位通过 `tools/verify_bitrate_profiles.py` 检查三档 × 30 条原厂模式记录、完整记录字段、越界写入、首次读取恢复、配置损坏和写入失败；SD 服务为明确的指令测试模型。`tools/verify_bitrate_profiles_qemu.py` 在辅助 QEMU 中运行原厂模式索引、菜单和图形管线，SD 服务使用明确诊断覆盖。详细流程与实机缺口见[码率档位说明](bitrate-slowmo-uncap.md)。
 
 ## 单元测试
 

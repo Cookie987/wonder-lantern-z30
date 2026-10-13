@@ -29,8 +29,8 @@ def resolve_presets(preset='full'):
             features.update(MODULAR_FEATURES)
         else:
             features.add(name)
-    # The host shares the sound menu/state framework and its native hooks.
-    if 'module-host' in features:
+    # Module host and bitrate profiles share the sound menu/state framework.
+    if 'module-host' in features or 'bitrate-slowmo-uncap' in features:
         features.add('shutter-sound')
     return list(dict.fromkeys(selected)), [f for f in FEATURE_ORDER if f in features]
 
@@ -54,7 +54,7 @@ def build(source, preset='full'):
         add(plan)
     if 'shutter-sound' in features:
         from .features.shutter_sound import add
-        add(plan, modules='module-host' in features)
+        add(plan, modules='module-host' in features, bitrate='bitrate-slowmo-uncap' in features)
     if 'mtp-fast' in features:
         from .features.mtp_fast import add
         add(plan)

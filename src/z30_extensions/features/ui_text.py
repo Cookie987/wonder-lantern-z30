@@ -11,6 +11,12 @@ SIMPLIFIED, TRADITIONAL = 26, 27
 # choose the stock Hans font 2 / Hant font 0 in the runtime style copy.
 UNICODE_STYLE = 120
 TRANSLATIONS = {
+    'Video bitrate': ('视频码率', '影片位元率'),
+    'Stock': ('原始', '原始'),
+    'Balanced': ('均衡', '均衡'),
+    'High quality': ('高质量', '高品質'),
+    'OK': ('确定', '確定'),
+    'Settings not saved': ('设置保存失败', '設定儲存失敗'),
     'Shutter sound': ('快门声音', '快門聲音'),
     'Extensions': ('自定义菜单', '自訂選單'),
     'Select sound': ('选择声音', '選擇聲音'),

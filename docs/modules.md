@@ -11,7 +11,7 @@
 ```powershell
 python -m pip install '.[sound]'
 New-Item -ItemType Directory -Force output | Out-Null
-python patch.py modular --source "Z_30_0120.bin" --output "output/EG209020.BIN"
+python patch.py module-host --source "Z_30_0120.bin" --output "output/EG209020.BIN"
 ```
 
 输出是独立 EG 模块，不是完整 Nikon 更新包。patch 程序不会写相机或 SD 卡。`modular` EG 模块已在 Z30 C 1.20 机身安装测试，SD 宿主也已通过机身加载和运行 ZMOD。
@@ -33,6 +33,8 @@ SD 卡根目录/
 ```
 
 机身中打开 **设置菜单 → Extensions → SD Modules**：
+
+简体中文路径为 **设置菜单 → 自定义菜单 → SD 卡功能**，繁体中文入口为 **自訂選單**。加载与运行操作跟随机身语言显示。
 
 1. 选择 `Load CORE.ZMOD`，按 OK。
 2. 成功后 State 显示 `Loaded`，输出显示 `counter module ready`。
@@ -64,6 +66,8 @@ python tools/prepare_module.py --example menu-fix --output "output/MENU-FIX.ZMOD
 
 修复在每次 Load 后生效，开机首次加载前仍使用宿主自身的布局。宿主源码也已按自己的几何布局设置每屏容量；新版宿主不需要这个模块来修正分页。
 
+该模块不适用于当前带侧栏修复或码率档位的菜单布局：其旧版布局校验会拒绝初始化。当前 `full` 的自定义根页包含六项，第六项为视频码率；不要使用旧分页模块修改新菜单。
+
 该模块是针对初版 ABI 2 宿主的特定布局适配器。它检查私有页面类型和条目数，将描述复制到模块持久数据，使用 C 1.20 原生缓存服务同步，再发布副本及重置滚动位置。副本保留至关机。它没有写闪存，也不通过通用 ABI 承诺任意宿主布局兼容。
 
 ## 模块 ABI 2
@@ -74,7 +78,7 @@ python tools/prepare_module.py --example menu-fix --output "output/MENU-FIX.ZMOD
 | --- | --- |
 | `version` / `size` | ABI 2，接口表至少 20 字节 |
 | `get_property(key)` | 调用原厂属性读取；属性编号和有效运行条件由模块作者核对 |
-| `set_text(text)` | 最长 40 个可打印 ASCII 字符，复制后由宿主显示；来源必须在模块载荷或私有 context 内 |
+| `set_text(text)` | ABI 接受最长 40 个可打印 ASCII 字符，复制后由宿主显示；中文界面显示前 24 个字符，英文最多 40 个；来源必须在模块载荷或私有 context 内 |
 | `set_run_handler(callback)` | 仅在 init 期间登记，必须是载荷范围内的 Thumb 入口 |
 | `context` | 64 字节，初始全零，成功加载后保留至关机 |
 

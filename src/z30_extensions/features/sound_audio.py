@@ -118,7 +118,7 @@ def audio_code(addresses, path_table, anchor_table):
         """
 
     codes['trigger']=f"""
-            push {{r4-r6,lr}}; {call('get')} mov r4,r0; cmp r4,#0; beq no;
+            push {{r4-r6,lr}}; {call('ensure')} mov r4,r0; cmp r4,#0; beq no;
             ldr r0,[r4,#{ENABLED}]; cmp r0,#1; bne no;
             ldr r0,[r4,#{LENGTH}]; cmp r0,#0; beq no;
             {c('r0',0x188c)} {native(0x101993de)} cmp r0,#0; bne no;

@@ -18,6 +18,7 @@ def main():
     p.add_argument('--output-dir', type=Path, required=True)
     p.add_argument('--stock-page', type=int)
     p.add_argument('--verify-fixed', action='store_true')
+    p.add_argument('--verify-error-dialog', action='store_true')
     p.add_argument('--back-cycles', type=int, default=0)
     p.add_argument('--touch-back', action='store_true')
     p.add_argument('--direct-setup', action='store_true', help='Diagnostic setup entry without selecting its tab')
@@ -46,22 +47,29 @@ def main():
         s.audit.append({'custom_sidebar_frame': name, 'nonblack_pixels': count})
         s.write_audit()
         assert count > 500, 'Custom page hid native sidebar'
+    def white_text(raw, x0, y0, x1, y1):
+        pixels = raw.split(b'\n', 3)[3]
+        return sum(all(v >= 190 for v in pixels[(y*720+x)*3:(y*720+x)*3+3])
+                   for y in range(y0,y1) for x in range(x0,x1))
     def frame(name):
         # gui-latest is also exported during GPU work. Sample native buffers
-        # and retain the most populated frame; never draw host-side pixels.
+        # and retain the most populated frame, then the most complete text
+        # and latest sample on ties; never draw host-side pixels.
         samples = []
         for _ in range(8):
             s.run_for(.25)
             raw = (s.graphics / 'gui-latest.ppm').read_bytes()
             pixels = raw.split(b'\n', 3)[3]
             score = sum(pixels[i:i+3] != b'\0\0\0' for i in range(0, len(pixels), 3))
-            samples.append((score, raw))
-        score, raw = max(samples, key=lambda x: x[0])
+            white = sum(all(v >= 190 for v in pixels[i:i+3]) for i in range(0,len(pixels),3))
+            samples.append((score, white, len(samples), raw))
+        score, white, _, raw = max(samples, key=lambda x: x[:3])
         target = s.out / (name + '.png')
         target.write_bytes(png_from_ppm(raw))
         captured[name] = raw
         s.audit.append({'frame': name, 'native_buffer_samples': [x[0] for x in samples],
-                        'chosen_nonblack_pixels': score})
+                        'native_white_samples': [x[1] for x in samples],
+                        'chosen_nonblack_pixels': score,'chosen_white_pixels':white})
         s.write_audit()
         return target
     def write(address, data):
@@ -166,6 +174,48 @@ def main():
                 current = s.input(0x1046109a, [])
                 assert int(current['registers']['r0'], 16) == root, 'Custom root did not open'
                 frame(f'back-{cycle}-custom')
+                if a.verify_error_dialog:
+                    popup = state + sound['page_offsets']['959']
+                    for error in (1, 3, 8):
+                        write(state + 52, struct.pack('<I', error))
+                        s.input(int(sound['functions']['show_error'],16) & ~1, [root])
+                        frame(f'error-dialog-{cycle}-{error}')
+                        assert lit(captured[f'error-dialog-{cycle}-{error}'],250,280,500,332) > 2000, 'Dialog OK button was not drawn'
+                        active = s.input(0x1046109a, [])
+                        assert int(active['registers']['r0'],16) == popup
+                        group = int.from_bytes(s.remote.memory(popup+12,4),'little')
+                        body = s.input(0x10454210, [0xa19,group])
+                        widget = int(body['registers']['r0'],16)
+                        assert widget and int.from_bytes(s.remote.memory(widget+8,4),'little') == 65
+                        # Use native touch dispatch for OK and, on the second
+                        # cycle, the popup back icon. Require parent rebuilding.
+                        for contact in (1, 0):
+                            packet = bytearray(60)
+                            struct.pack_into('<I', packet, 0, 1)
+                            packet[8], packet[9] = contact, 1
+                            x, y = (675,28) if error == 3 and cycle else (350,310)
+                            struct.pack_into('<2H', packet, 0x12, x, y)
+                            s.input(0x103ce7e6, [('scratch',0)],payload=packet)
+                            s.run_for(.5)
+                        frame(f'error-dialog-{cycle}-{error}-closed')
+                        if 'module_host' in report['features']:
+                            count = white_text(captured[f'error-dialog-{cycle}-{error}-closed'],78,274,350,314)
+                            s.audit.append({'dialog_closed_module_label_pixels':count,'error':error,'cycle':cycle})
+                            length, pointer, style = struct.unpack('<3I',s.remote.memory(0xc2013368+74*12,12))
+                            label = s.remote.memory(pointer,length*(2 if a.language.startswith('zh-') else 1)) if length else b''
+                            registry = int.from_bytes(s.remote.memory(root+36,4),'little')
+                            row = s.input(0x1045745e,[registry,1,4])
+                            row_widget = int(row['registers']['r0'],16)
+                            s.audit.append({'module_root_slot_length':length,'module_root_slot_raw':label.hex(),
+                                            'module_root_style':style,'module_root_widget':hex(row_widget),
+                                            'module_root_widget_state':s.remote.memory(row_widget,64).hex() if row_widget else None})
+                            s.write_audit()
+                            assert count > 100, 'Closing the dialog lost the SD Modules label'
+                        active = s.input(0x1046109a, [])
+                        assert int(active['registers']['r0'],16) == root
+                        assert int.from_bytes(s.remote.memory(state+52,4),'little') == 0
+                    s.audit.append({'error_dialog_close_cycle':cycle,'errors':[1,3,8]})
+                    s.write_audit()
                 if a.verify_sidebar:
                     sidebar(f'back-{cycle}-custom')
                 back()
