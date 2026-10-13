@@ -5,9 +5,11 @@ from .features.liveview_dual import build as build_dual, VIDEO_STOCK_WINDOWS
 from .platform.z30_120 import BASE
 
 
-PRESETS = ('full', 'liveview-dual', 'shutter-sound', 'm900', 'mtp-fast', 'module-host', 'video-rot')
+PRESETS = ('full', 'liveview-dual', 'shutter-sound', 'm900', 'mtp-fast', 'module-host', 'video-rot',
+           'bitrate-slowmo-uncap')
 LEGACY_PRESETS = ('modular',)
-FEATURE_ORDER = ('liveview-dual', 'm900', 'shutter-sound', 'mtp-fast', 'module-host', 'video-rot')
+FEATURE_ORDER = ('liveview-dual', 'm900', 'shutter-sound', 'mtp-fast', 'module-host', 'video-rot',
+                 'bitrate-slowmo-uncap')
 FULL_FEATURES = FEATURE_ORDER
 MODULAR_FEATURES = ('liveview-dual', 'm900', 'shutter-sound', 'module-host')
 
@@ -58,6 +60,9 @@ def build(source, preset='full'):
         add(plan)
     if 'video-rot' in features:
         from .features.video_rot import add
+        add(plan)
+    if 'bitrate-slowmo-uncap' in features:
+        from .features.bitrate_slowmo_uncap import add
         add(plan)
     output, report = plan.finish()
     for address, expected in VIDEO_STOCK_WINDOWS:
