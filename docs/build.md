@@ -1,6 +1,6 @@
 # 从原始固件包构建功能扩展
 
-当前用户流程只需准备原始 Z30 C 1.20 固件包和本项目 patch 程序。默认 full 包含同屏、自定义电子快门声音、M 档 900 秒曝光、MTP 加速、实验性 SD 模块宿主和视频自动方向，不包含状态页面。
+当前用户流程只需准备原始 Z30 C 1.20 固件包和本项目 patch 程序。默认 full 包含同屏、自定义电子快门声音、M 档 900 秒曝光、MTP 加速、实验性 SD 模块宿主、视频自动方向和高码率与慢动作扩展，不包含状态页面。
 
 ## 运行
 
@@ -12,13 +12,34 @@ New-Item -ItemType Directory -Force output | Out-Null
 python patch.py --source path/to/Z_30_0120.bin --output output/EG209020.BIN
 ```
 
-可自由组合 `full`、`liveview-dual`、`shutter-sound`、`m900`、`mtp-fast`、`module-host` 和 `video-rot`。菜单第 6 项为 SD 模块宿主，自动包含其依赖 `shutter-sound`，不会额外启用同屏、M900 或 MTP 加速。旧别名 `modular` 保留命令行和手动输入兼容，不在菜单中显示。终端中省略预设会显示多选菜单，输入编号或名称（空格或逗号分隔）；直接回车选择 full。非交互脚本省略预设时仍默认 full，可用 `--interactive` 强制显示菜单。命令行的多个预设用空格分隔：
+可自由组合 `full`、`liveview-dual`、`shutter-sound`、`m900`、`mtp-fast`、`module-host`、`video-rot` 和 `bitrate-slowmo-uncap`。菜单第 6 项为 SD 模块宿主，自动包含其依赖 `shutter-sound`；第 7 项为视频方向，第 8 项为高码率与慢动作扩展。旧别名 `modular` 保留命令行和手动输入兼容，不在菜单中显示。终端中省略预设会显示多选菜单，输入编号或名称（空格或逗号分隔）；直接回车选择 full。非交互脚本省略预设时仍默认 full，可用 `--interactive` 强制显示菜单。命令行的多个预设用空格分隔：
 
 ```powershell
 python patch.py liveview-dual m900 mtp-fast --source path/to/Z_30_0120.bin --output output/EG209020.BIN
 ```
 
-`full` 展开为全部六项功能：同屏、M900、快门声音、MTP 加速、实验性 SD 模块宿主和视频方向。保留 `modular` 原有范围：同屏、M900、快门声音和实验性 SD 模块宿主，不包含视频方向；`modular mtp-fast video-rot` 与 full 启用同一功能集合。`module-host` 仍为实验性功能，菜单及 full 的说明均明确标注。重复功能只应用一次，构建顺序固定，同一功能集合的输出不会随输入顺序改变。报告记录 `selected_presets` 和展开后的 `enabled_features`。
+`full` 展开为全部七项功能：同屏、M900、快门声音、MTP 加速、实验性 SD 模块宿主、视频方向和高码率与慢动作扩展。保留 `modular` 原有范围：同屏、M900、快门声音和实验性 SD 模块宿主；`modular mtp-fast video-rot bitrate-slowmo-uncap` 与 full 启用同一功能集合。`module-host` 仍为实验性功能，菜单及 full 的说明均明确标注。重复功能只应用一次，构建顺序固定，同一功能集合的输出不会随输入顺序改变。报告记录 `selected_presets` 和展开后的 `enabled_features`。
+
+### 视频码率与慢动作限制
+
+默认 `full` 已包含 `bitrate-slowmo-uncap`。重新构建默认固件会使用以下高画质码率，单位为 Mbps，写作“最大 / 平均”：
+
+| 模式 | 原厂 | 修改后 |
+| --- | --- | --- |
+| 1080p 60p、50p 高画质 | 56 / 48 | 108 / 90 |
+| 1080p 30p、25p、24p 高画质 | 28 / 24 | 72 / 60 |
+
+慢动作录制上限由 3 分钟延长到 25 分钟；FAT32 最多分成 8 个文件，exFAT 使用单个大文件。4K、120p/100p、慢动作和标准画质的码率保持原厂值，分辨率、帧率、GOP 和其他模式的 125 分钟上限不变。25 分钟上限为固定容量的封装索引表保留余量。
+
+该独立功能只需要 Python 标准库，通过 8 处带 expected 校验的原位替换实现，不追加代码，也不需要 Keystone。单独构建：
+
+```powershell
+python patch.py bitrate-slowmo-uncap --source path/to/Z_30_0120.bin --output output/EG209020.BIN
+```
+
+要保持原厂码率和慢动作限制，可明确选择其余六项，例如 `modular mtp-fast video-rot`；这是旧 full 的功能集合，与当前七项 full 不同。构建报告的 `features.bitrate_slowmo_uncap` 记录改动的码率档和慢动作时长上限。
+
+作者报告使用包含该功能的 `full`，验证了五种 1080p 高画质码率和三种慢动作的 25 分钟停止行为，覆盖 MOV/exFAT 单文件、MOV/FAT32 分段及慢动作 MP4/exFAT。独立预设尚未单独刷机；普通模式 MP4、MP4/FAT32 分段和默认值以外的码率尚未测试。实机记录及索引检查方法见[视频码率与慢动作限制](bitrate-slowmo-uncap.md)。离线构建报告仍保持 `camera_verified: false`，表示脚本没有执行机身测试，不扩展为所有组合的实机验证。
 
 ### 自动视频方向（第二阶段）
 
@@ -33,7 +54,7 @@ python patch.py video-rot --source path/to/Z_30_0120.bin --output output/EG20902
 
 只改新视频的元数据，不改像素或已有文件，播放器需尊重方向矩阵。锁定点是封装对象成功配置时，不是实测的 REC 按钮硬件时间；跨文件分段会创建新对象时重新采样。两侧竖拍角度映射、分段时机、机身回放和完整录像链路均需实机确认。第一阶段固定 90° 的实机反馈只证明矩阵能影响播放方向，不能作为本阶段自动选择已通过的证据。
 
-单独同屏和 M900 只需要标准库。声音、模块宿主和 `mtp-fast` 通过 `.[sound]` 安装的 Keystone 汇编。输出和同名 JSON 必须不存在，程序拒绝覆盖。CLI 通过 Python 运行。
+单独同屏、M900 和 `bitrate-slowmo-uncap` 只需要标准库。声音、模块宿主和 `mtp-fast` 通过 `.[sound]` 安装的 Keystone 汇编，视频方向可使用 `.[video]` 或 `.[sound]`。输出和同名 JSON 必须不存在，程序拒绝覆盖。CLI 通过 Python 运行。
 
 原始包大小为 34,496,798 字节，SHA-256 为：
 
@@ -85,6 +106,6 @@ python tools/verify_extended_features.py --source path/to/Z_30_0120.bin
 
 输出为独立 EG 模块，不重建外层 Z_30_0120.bin。固件版本菜单保留原厂 1.20，构建身份通过 JSON 报告的 SHA-256 核对。该模块的机身安装以及 SD 宿主/ZMOD 加载运行已完成实机测试。
 
-默认组合包含同屏、自定义声音、M900、MTP 加速和 SD 模块宿主。900 秒补丁改变扩展标志读取，不写入其保存值；原厂模式判断和曝光路径保留。视频快门窗口在构建后核对为原厂字节。
+默认组合包含同屏、自定义声音、M900、MTP 加速、SD 模块宿主、视频自动方向和高码率与慢动作扩展。900 秒补丁改变扩展标志读取，不写入其保存值；原厂模式判断和曝光路径保留。视频快门窗口在构建后核对为原厂字节。
 
 默认 `full` 构建包含 SD 模块宿主，不添加状态页、计数、CFW 版本标记或视频慢快门。离线检查不能保证真实显示、声音或曝光行为。
